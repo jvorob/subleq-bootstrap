@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#include "shared.h"
+#include "asm.h"
+
 //design q: 16-bit word-addressed or byte-addressed? byte-addressed b/c irl memory modules
 // (although could just chain two into a double-wide word-addressed mem)
 // let's do 16-bit
@@ -28,16 +31,9 @@
 //  ALU &,|,^,>>,<<: contains A op B
 //  >> doesn't fill in top negative bits
 
-#define MEM_SIZE 65536
-#define MEM_BUFF 20 //how much extra padding on the end, really should only need 2 words but whatever
-#define WORD_SIZE 2
 
 
-
-struct vm_state {
-    int16_t mem[MEM_SIZE+MEM_BUFF]; //throw in a little extra in case we read past the end
-    int16_t pc;
-};
+//struct vm_state defined in shared.h
 
 struct vm_state global_vm;
 
@@ -214,16 +210,43 @@ void run(struct vm_state *vm) {
     } while (retval == 0);
 }
 
+// ================= MAIN STUFF =================
 
+void run_default_program() {
+    printf("Initializing...\n");
+    init_vm(&global_vm);
+    printf("Running :\n=======\n");
+    run(&global_vm);
+    printf("=======\nExited\n");
+}
+
+//print usage to stderr
+void print_usage() {
+    printf("Usage: \n");
+    printf("      subleq test # run default program \n");
+    printf("      subleq asm1 # run asm1 on stdin \n");
+}
 
 int main(int argc, char *argv[]) {
-    printf("Initializing...\n");
+    if(argc == 1) {
+        //no args
+        print_usage(); exit(0);
+    } else {
+        //argc >= 2, at least 1 args
+        if(strcmp(argv[1], "test") == 0) {
+            printf("Running default test program\n");
+            run_default_program();
+            exit(0);
+        }
+        else if(strcmp(argv[1], "asm1") == 0) {
+            fprintf(stderr, "Assembling asm_1 \n");
+            asm_1();
+        }
+        else {
+            fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[1]);
+            print_usage();
+            exit(1);
+        }
+    }
 
-    init_vm(&global_vm);
-
-    printf("Running :\n=======\n");
-
-    run(&global_vm);
-
-    printf("=======\nExited\n");
 }
