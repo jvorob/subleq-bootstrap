@@ -1,0 +1,43 @@
+#Hello world program
+#Copies bytes from 0x40 until it hits a null,
+#text string is stored as 0041, 0020, etc
+#prints to stdout
+#can compile it with `grep <test.asm1 -v '#' | interp asm1 >test.bin`
+
+#Z, 0, entrypoint Z2     #P1, M1, 0, 0
+ 0  0     20      0       1 FFFF  0  0
+
+#0x8: I O A B     0  0xD:halt
+      0 0 0 0     0  0 0 D
+
+
+# 0x10: ALU
+# & | ^ _   << >> _ _
+  0 0 0 0   0  0  0 0
+  
+# 0x18: vars
+#  p v                p=0xFFFC=-0x40
+FFFC 0 0 0   0 0 0 0
+
+
+#0x20
+#loop:
+
+# V  V  ?  X    X row?
+ 19 19 23 2b   2b 28  0 0
+
+# P  X  ? X:_    V  ?  V Z
+ 18 2b 2b  0    19 2e 19 0
+
+#0x30
+#halt  Z  Z   ?     V out  ? P1
+D      0  0  34    19  9  37  4
+
+#P loop
+18  20  0 0   0 0 0 0
+
+#0x40, "Hello World\n\0"
+48 65 6C 6C    6F 20 57 6F    72 6C 64 0A  0 0 0 0
+
+#0x50
+
