@@ -20,7 +20,8 @@
 // DOCS:
 // Program starts execution from 0x0
 // Program halts if NEXT==? and A==B
-// TODO: infinite loop detect?
+// Return value is A
+//
 // Special addresses:
 // Reading from a special address must be done with first operand. Using it as B will yield 0
 // Writing to a special address must be done with second operand. Using it as A will yield 0
@@ -175,11 +176,16 @@ void init_vm(struct vm_state *vm) {
 //Runs specified memory
 //Assumes memory is of size (MEM_SIZE+MEM_BUFF)*WORD_SIZE
 //Starts executing at pc=0, runs until halt
-void run(struct vm_state *vm) {
+//
+//On halt, returns retval = first operand of halt instruction
+int run(struct vm_state *vm) {
     int retval;
     do {
         retval = step(vm);
     } while (retval == 0);
+
+    //halted, get A operand of last instrucc
+    return vm->mem[vm->pc];
 }
 
 
@@ -212,18 +218,20 @@ void run_default_program() {
     printf("Initializing...\n");
     init_vm(&global_vm);
     printf("Running :\n=======\n");
-    run(&global_vm);
-    printf("=======\nExited\n");
+    int retval = run(&global_vm);
+    printf("=======\nExited with code %d\n", retval);
 }
 
 //loads a binary from stdin and executes it
-void run_binary() {
+//returns return value
+int run_binary() {
     fprintf(stderr, "Loading binary from stdin\n");
     init_vm(&global_vm);
     load_binary(&global_vm);
     fprintf(stderr, "Running :\n=======\n");
-    run(&global_vm);
-    fprintf(stderr, "=======\nHalted after %ld steps\n", global_vm.num_cycles);
+    int retval = run(&global_vm);
+    fprintf(stderr, "=======\nHalted with code %d after %ld steps\n", retval, global_vm.num_cycles);
+    return(retval);
 }
 
 //print usage to stderr
@@ -246,7 +254,8 @@ int main(int argc, char *argv[]) {
             exit(0);
         }
         else if(strcmp(argv[1], "bin") == 0) {
-            run_binary();
+            int retcode=run_binary();
+            exit(retcode);
         }
         else if(strcmp(argv[1], "asm1") == 0) {
             fprintf(stderr, "Assembling asm_1 \n");
