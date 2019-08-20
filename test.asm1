@@ -17,7 +17,7 @@
   
 # 0x18: vars
 #  p v                p=0xFFFC=-0x40
-FFFC 0 0 0   0 0 0 0
+FFC0 0 0 0   0 0 0 0
 
 
 #0x20

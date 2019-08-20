@@ -85,42 +85,6 @@ int16_t program_init[] = {
        0,   0,   0,   0,     0,   0,   0,   0,
 };
 
-int16_t program_init_hello[] = {
-      //0x0 
-      //Z     entry  Z2      P1   M1
-       0,   0,0x20,   0,     1,  -1,   0,   5,
-
-  // in,  out    A    B         0xD halt......
-       0,   0,   0,   0,     0,   0,   0, 0xd,
-
-      //0x10: ALU
-    // &    |    ^          <<   >> 
-       0,   0,   0,   0,     0,   0,   0,   0,
-    // p    v
-   -0x40,   0,   0,   0,     0,   0,   0,   0,
-
-      //0x20
-//loop:
-//     V   V     ?    X      X  ?Row
-    0x19,0x19,0x23,0x2b,  0x2b,0x28,   0,   0,
-
-//     P    X    ?  X:_      V    ?    V    Z
-    0x18,0x2b,0x2b,   0,  0x19,0x2e,0x19,   0,
-
-//0x30
-//  halt    Z    Z    ?      V  out    ?   P1
-     0xD,   0,   0,0x34,  0x19,   9,0x37,   4,
-       
-//     P loop
-    0x18,0x20,   0,   0,     0,   0,   0,   0,
-
-      //0x40
-     'H', 'e', 'l', 'l',   'o','\n',   0,   0,
-       0,   0,   0,   0,     0,   0,   0,   0,
-       0,   0,   0,   0,     0,   0,   0,   0,
-       0,   0,   0,   0,     0,   0,   0,   0,
-};
-
 //gets a char from stdin
 int16_t get_input() {
     return getc(stdin);
@@ -128,14 +92,21 @@ int16_t get_input() {
 
 //clamps output to 8 bits, prints to stdout
 void write_output(int16_t c) {
-    //putc(c & 0xFF, stdout);
-    printf("Output: '%c', %x\n", c & 0xFF, c);
+    putc(c & 0xFF, stdout);
+    //printf("Output: '%c', %x\n", c & 0xFF, c);
 }
 
 //Runs one step, returns 0 normally, 1 if halt
 int step(struct vm_state *vm) {
-    printf("DEBUG: at pc x%04x, A=%x (%d), B=%x (%d)\n", 
+    vm->num_cycles++;
+
+    fprintf(stderr, "DEBUG: at pc x%04x, A=%x (%d), B=%x (%d)",
             vm->pc, vm->mem[ALU_A], vm->mem[ALU_A], vm->mem[ALU_B], vm->mem[ALU_B]);
+
+    //optional debug printing
+    fprintf(stderr, ", P=%x (%d)", vm->mem[0x18], vm->mem[0x18]);
+
+    fprintf(stderr, "\n");
 
     int16_t A =    vm->mem[vm->pc];
     int16_t B =    vm->mem[vm->pc+1];
@@ -198,6 +169,7 @@ void init_vm(struct vm_state *vm) {
     memset(vm->mem, 0, (MEM_SIZE + MEM_BUFF) * WORD_SIZE);
     memcpy(vm->mem, program_init, sizeof(program_init));
     vm->pc = 0;
+    vm->num_cycles=0;
 }
 
 //Runs specified memory
@@ -210,6 +182,30 @@ void run(struct vm_state *vm) {
     } while (retval == 0);
 }
 
+
+//Reads bytes from stdin, slurps them into vm memory
+void load_binary(struct vm_state *vm) {
+    long offset=0;
+    char *cmem = (char *)vm->mem;
+    
+    int c;
+    while((c = getchar()) != EOF) {
+        if(offset >= MEM_SIZE * WORD_SIZE) {
+            fprintf(stderr,"ERROR: binary > than %d words, exiting\n", MEM_SIZE);
+            exit(1);
+        }
+
+        cmem[offset++] = c;
+    }
+
+    //check we got an even number of bytes
+    if(offset % 2 == 1) {
+        fprintf(stderr,"WARNING: malformed binary, has odd number of bytes\n");
+        cmem[offset++] = 0;
+    }
+    fprintf(stderr, "Loaded binary of %ld words\n", offset/2);
+}
+
 // ================= MAIN STUFF =================
 
 void run_default_program() {
@@ -220,10 +216,21 @@ void run_default_program() {
     printf("=======\nExited\n");
 }
 
+//loads a binary from stdin and executes it
+void run_binary() {
+    fprintf(stderr, "Loading binary from stdin\n");
+    init_vm(&global_vm);
+    load_binary(&global_vm);
+    fprintf(stderr, "Running :\n=======\n");
+    run(&global_vm);
+    fprintf(stderr, "=======\nHalted after %ld steps\n", global_vm.num_cycles);
+}
+
 //print usage to stderr
 void print_usage() {
     printf("Usage: \n");
     printf("      subleq test # run default program \n");
+    printf("      subleq bin  # read binary from stdin, run it\n");
     printf("      subleq asm1 # run asm1 on stdin \n");
 }
 
@@ -234,9 +241,12 @@ int main(int argc, char *argv[]) {
     } else {
         //argc >= 2, at least 1 args
         if(strcmp(argv[1], "test") == 0) {
-            printf("Running default test program\n");
+            fprintf(stderr, "Running default test program\n");
             run_default_program();
             exit(0);
+        }
+        else if(strcmp(argv[1], "bin") == 0) {
+            run_binary();
         }
         else if(strcmp(argv[1], "asm1") == 0) {
             fprintf(stderr, "Assembling asm_1 \n");

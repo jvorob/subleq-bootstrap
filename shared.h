@@ -8,6 +8,7 @@
 struct vm_state {
     int16_t mem[MEM_SIZE+MEM_BUFF]; //throw in a little extra in case we read past the end
     int16_t pc;
+    int64_t num_cycles;
 };
 
 
