@@ -42,6 +42,13 @@ struct vm_state global_vm;
 #define OUT_ADDR 9
 #define HALT_ADDR 0xD
 
+//registers, (by convention)
+#define X_ADDR 0x20
+#define Y_ADDR 0x21
+#define Z_ADDR 0x22
+#define W_ADDR 0x23
+
+
 #define ALU_A 0xA
 #define ALU_B 0xB
 #define ALU_BASE 0x10
@@ -97,15 +104,25 @@ void write_output(int16_t c) {
     //printf("Output: '%c', %x\n", c & 0xFF, c);
 }
 
+#define SHOW_VAR(name,loc) fprintf(stderr, ", " #name "=%04hx", vm->mem[loc]);
+#define SHOW_VAR_NEG(name,loc) fprintf(stderr, ", " #name "=%04hx (-%04hx)", vm->mem[loc], -vm->mem[loc]);
+
 //Runs one step, returns 0 normally, 1 if halt
 int step(struct vm_state *vm) {
     vm->num_cycles++;
 
-    fprintf(stderr, "DEBUG: at pc x%04x, A=%x (%d), B=%x (%d)",
-            vm->pc, vm->mem[ALU_A], vm->mem[ALU_A], vm->mem[ALU_B], vm->mem[ALU_B]);
+    fprintf(stderr, "DEBUG: at pc x%04hx", vm->pc);
 
     //optional debug printing
-    fprintf(stderr, ", P=%x (%d)", vm->mem[0x18], vm->mem[0x18]);
+    SHOW_VAR_NEG(X,X_ADDR);
+    SHOW_VAR_NEG(Y,Y_ADDR);
+
+    SHOW_VAR(A,ALU_A);
+    SHOW_VAR(B,ALU_B);
+    SHOW_VAR(Z,0x0);
+    SHOW_VAR(Z2,0x3);
+    SHOW_VAR(P,0x20);
+    //fprintf(stderr, ", P=%x (%d)", vm->mem[0x18], vm->mem[0x18]);
 
     fprintf(stderr, "\n");
 
@@ -209,6 +226,13 @@ void load_binary(struct vm_state *vm) {
         fprintf(stderr,"WARNING: malformed binary, has odd number of bytes\n");
         cmem[offset++] = 0;
     }
+
+    //check nonempty
+    if(offset == 0) {
+        fprintf(stderr,"ERROR: empty binary, exiting\n");
+        exit(1);
+    }
+
     fprintf(stderr, "Loaded binary of %ld words\n", offset/2);
 }
 
@@ -236,10 +260,10 @@ int run_binary() {
 
 //print usage to stderr
 void print_usage() {
-    printf("Usage: \n");
-    printf("      subleq test # run default program \n");
-    printf("      subleq bin  # read binary from stdin, run it\n");
-    printf("      subleq asm1 # run asm1 on stdin \n");
+    fprintf(stderr, "Usage: \n");
+    fprintf(stderr, "      subleq test # run default program \n");
+    fprintf(stderr, "      subleq bin  # read binary from stdin, run it\n");
+    fprintf(stderr, "      subleq asm1 # run asm1 on stdin \n");
 }
 
 int main(int argc, char *argv[]) {
