@@ -14,6 +14,19 @@
 // instruction is 2-byte addr A, 2-byte addr B, 2-byte addr NEXT
 
 
+// DOCS:
+// Program starts execution from 0x0
+// Program halts if NEXT==? and A==B
+// TODO: infinite loop detect?
+// Special addresses:
+// Reading from a special address must be done with first operand. Using it as B will yield 0
+// Writing to a special address must be done with second operand. Using it as A will yield 0
+//  stdin: reading from here subtracts the next character from stdin
+//  stdout: writing to here will write -*A to output
+//
+//  ALU A and B: normal registers, but contents determine ALU results
+//  ALU &,|,^,>>,<<: contains A op B
+//  >> doesn't fill in top negative bits
 
 #define MEM_SIZE 65536
 #define MEM_BUFF 20 //how much extra padding on the end, really should only need 2 words but whatever
@@ -28,33 +41,82 @@ struct vm_state {
 
 struct vm_state global_vm;
 
+#define IN_ADDR  8
+#define OUT_ADDR 9
+#define HALT_ADDR 0xD
+
+#define ALU_A 0xA
+#define ALU_B 0xB
+#define ALU_BASE 0x10
+#define ALU_MASK 0xF8 //top 5 bits, ALU gets 7 regs
+
+#define ALU_AND 0x10
+#define ALU_OR  0x11
+#define ALU_XOR 0x12
+#define ALU_LS  0x14
+#define ALU_RS  0x15
+
 int16_t program_init[] = {
       //0x0 
       //Z     entry  Z2      P1   M1
        0,   0,0x20,   0,     1,  -1,   0,   5,
 
-  // in,  out                   0xD halt......
+  // in,  out    A    B         0xD halt......
        0,   0,   0,   0,     0,   0,   0, 0xd,
 
-      //0x10: vars
-    // p    v
-   -0x40,   0,   0,   0,     0,   0,   0,   0,
+      //0x10: ALU
+    // &    |    ^          <<   >> 
+       0,   0,   0,   0,     0,   0,   0,   0,
        0,   0,   0,   0,     0,   0,   0,   0,
 
       //0x20
 //loop:
+//    v1    A    ?   v2      B    ?   >>    Z
+    0x40, 0xA,0x23,0x41,   0xB,0x26,0x15,   0,
+   //?      Z  out    ?      Z    Z halt
+    0x29,   0, 0x9,0x18,     0,   0, 0xD,   0,
+
+     //0x30
+       0,   0,   0,   0,     0,   0,   0,   0,
+       0,   0,   0,   0,     0,   0,   0,   0,
+
+
+      //0x40
+    //v1   v2
+ -0x4100,  -8,   0,   0,     0,   0,   0,   0,
+       0,   0,   0,   0,     0,   0,   0,   0,
+       0,   0,   0,   0,     0,   0,   0,   0,
+       0,   0,   0,   0,     0,   0,   0,   0,
+};
+
+int16_t program_init_hello[] = {
+      //0x0 
+      //Z     entry  Z2      P1   M1
+       0,   0,0x20,   0,     1,  -1,   0,   5,
+
+  // in,  out    A    B         0xD halt......
+       0,   0,   0,   0,     0,   0,   0, 0xd,
+
+      //0x10: ALU
+    // &    |    ^          <<   >> 
+       0,   0,   0,   0,     0,   0,   0,   0,
+    // p    v
+   -0x40,   0,   0,   0,     0,   0,   0,   0,
+
+      //0x20
+//loop:
 //     V   V     ?    X      X  ?Row
-    0x11,0x11,0x23,0x2b,  0x2b,0x28,   0,   0,
+    0x19,0x19,0x23,0x2b,  0x2b,0x28,   0,   0,
 
 //     P    X    ?  X:_      V    ?    V    Z
-    0x10,0x2b,0x2b,   0,  0x11,0x2e,0x11,   0,
+    0x18,0x2b,0x2b,   0,  0x19,0x2e,0x19,   0,
 
 //0x30
 //  halt    Z    Z    ?      V  out    ?   P1
-     0xD,   0,   0,0x34,  0x11,   9,0x37,   4,
+     0xD,   0,   0,0x34,  0x19,   9,0x37,   4,
        
 //     P loop
-    0x10,0x20,   0,   0,     0,   0,   0,   0,
+    0x18,0x20,   0,   0,     0,   0,   0,   0,
 
       //0x40
      'H', 'e', 'l', 'l',   'o','\n',   0,   0,
@@ -71,12 +133,13 @@ int16_t get_input() {
 //clamps output to 8 bits, prints to stdout
 void write_output(int16_t c) {
     //putc(c & 0xFF, stdout);
-    printf("Output: '%c'\n", c & 0xFF);
+    printf("Output: '%c', %x\n", c & 0xFF, c);
 }
 
 //Runs one step, returns 0 normally, 1 if halt
 int step(struct vm_state *vm) {
-    printf("DEBUG: at pc %x, p=%x, v=%d\n", vm->pc, vm->mem[0x10], vm->mem[0x11]);
+    printf("DEBUG: at pc x%04x, A=%x (%d), B=%x (%d)\n", 
+            vm->pc, vm->mem[ALU_A], vm->mem[ALU_A], vm->mem[ALU_B], vm->mem[ALU_B]);
 
     int16_t A =    vm->mem[vm->pc];
     int16_t B =    vm->mem[vm->pc+1];
@@ -90,8 +153,22 @@ int step(struct vm_state *vm) {
     
     //Fetch vals
     int16_t A_VAL;
-    if(A == 8) { A_VAL = get_input(); } 
-    else       { A_VAL = vm->mem[A]; }
+    //stdin
+         if(A == IN_ADDR) { A_VAL = get_input(); } 
+    //ALU ops
+    else if((A & ALU_MASK) == ALU_BASE) {
+        printf("In ALU\n");
+        switch(A) {
+            case(ALU_AND):  A_VAL = vm->mem[ALU_A] &  vm->mem[ALU_B]; break;
+            case(ALU_OR ):  A_VAL = vm->mem[ALU_A] |  vm->mem[ALU_B]; break;
+            case(ALU_XOR):  A_VAL = vm->mem[ALU_A] ^  vm->mem[ALU_B]; break;
+            case(ALU_LS ):  A_VAL = vm->mem[ALU_A] << vm->mem[ALU_B]; break;
+            case(ALU_RS ):  A_VAL = vm->mem[ALU_A] >> vm->mem[ALU_B]; break;
+            default:        A_VAL = 0;
+        }
+    }
+    //normal
+    else                  { A_VAL = vm->mem[A]; }
 
     int16_t B_VAL = vm->mem[B];
 
@@ -99,7 +176,7 @@ int step(struct vm_state *vm) {
     int16_t diff = B_VAL - A_VAL;
 
     //Write back
-    if(B == 9) { write_output(diff); }
+    if(B == OUT_ADDR) { write_output(diff); }
     else       { vm->mem[B] = diff; }
 
     //Jump LEQ
