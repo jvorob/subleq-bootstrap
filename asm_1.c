@@ -7,15 +7,16 @@
 
 
 /* Design goals:
- * first binwrite will read hex from stdin, skipping whitespace
+ * first binwrite will read hex from stdin, skipping whitespace and line comments
  * will write hex directly into binary format and write it to stdout
  *
  * each chunk is written as a 16-bit word in little-endian
  * reads 0-1A-F until a space or newline
  *
  * binwrite syntax:
- * 1f 0 
- * 2b 0 
+ *   #comment
+ *   1f 0 FFFF #some stuff
+ *   2b 0 
  */
 
 //reads from stdin to EOF
@@ -38,6 +39,8 @@ int asm_1() {
 
         if(c == ' ') { continue; }
         if(c == '\n') { continue; }
+
+        if(c == '#') { goto drop_comment; }
 
         if(c < '0')  { goto invalid_char; }
         if(c <= '9') { goto read_number; }
@@ -75,6 +78,12 @@ finish_num:
         curr_num = 0;
         continue;
 
+
+//reads chars until newline
+drop_comment:
+        c = getchar();
+        if(c == '\n') { continue; }
+        goto drop_comment;
 
         if(offset > MEM_SIZE) {
             fprintf(stderr, "ERROR: size exceeds limit of %d\n", MEM_SIZE);
