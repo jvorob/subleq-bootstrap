@@ -28,17 +28,22 @@ int asm_1() {
     int c;
     long offset = 0; //in dwords
     int curr_num = 0;
+    int line_no = 1;
+    int column = 0;
     char temp;
 
 
     //main loop: walks until it finds a number, then jumps to read_number
     while(1) {
+        column++;
         c = getchar();
         
+//handle current char without getting new one
+handle_char:
         if(c == EOF) { goto end_input; }
 
         if(c == ' ') { continue; }
-        if(c == '\n') { continue; }
+        if(c == '\n') { goto next_line; }
 
         if(c == '#') { goto drop_comment; }
 
@@ -66,6 +71,7 @@ read_number:
             curr_num = curr_num + curr_num;
             curr_num += c;
             c = getchar();
+            column++;
             goto read_number;
 
 finish_num:
@@ -76,23 +82,28 @@ finish_num:
         putchar(temp);
         offset += 1;
         curr_num = 0;
-        continue;
+        goto handle_char;
 
 
 //reads chars until newline
 drop_comment:
         c = getchar();
-        if(c == '\n') { continue; }
+        if(c == '\n') { goto next_line; }
         goto drop_comment;
 
         if(offset > MEM_SIZE) {
             fprintf(stderr, "ERROR: size exceeds limit of %d\n", MEM_SIZE);
             return 1;
         }
+
+next_line:
+        line_no++;
+        column = 0;
+        continue;
     }
 
     invalid_char:
-        fprintf(stderr, "ERROR: invalid char '%c', %d\n", c, c);
+        fprintf(stderr, "ERROR: invalid char '%c' (%d), at line %d, col %d\n", c, c, line_no, column);
         return 1;
 
     end_input:
