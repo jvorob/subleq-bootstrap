@@ -23,6 +23,8 @@
 
 #niceties for later
 #speed up "inner loop" from next_char to handle_char
+#add 0xD_ page for halt codes
+#add initializer to reset entry to halt (catch runaway nops)
 
 ### NOTE ON CODE STRUCTURE:
 # Code is grouped into blocks of 0x20 bytes
@@ -38,7 +40,7 @@
  0 0  40   0      1 FFFF 0 0
 
 # 0x8
-# I O A B     _ 0xD:halt(0)
+# I O A B     _ 0xD:halt0
   0 0 0 0     0 0 0 D
 
 # 0x10: ALU
@@ -46,7 +48,7 @@
   0 0 0 0   0  0  0 0
   
 # 0x18 
-#           _ 0x1D: halt(1)
+#           _ 0x1D: halt1
   0 0 0 0   0 1 1 1D 
 
 # ========  REGISTERS AND CO.
@@ -96,9 +98,9 @@
    5 20 55    #52: $-1 X #put X back to normal
    0  0 A0    #55: Z Z handle_char 
    0  0 5B    #58:      
-   1  1 5B    #5B:   err: halt(1)
-   0  0 40    #5E:
-   0  0 64    #61: 
+   1  1 5B    #5B:   err: halt1 #unrecognized char?
+   2  2 5E    #5E:   err: halt2 #seek backwards
+   3  3 61    #61:   err: halt3 #seek assert err
    0  0 67    #64: 
    0  0 6A    #67: 
    0  0 6D    #6A: 
@@ -151,14 +153,14 @@
  102 20 5B    #A9: $2  X err
  101 20 70    #AC: $1  X comment
  10C 20 5B    #AF: $C  X err
- 10A 20 180   #B2: $A  X num
+ 10A 20 183   #B2: $A  X read_num
  105 20 5B    #B5: $5  X err
-   4 20 D0    #B8: $1  X put_offset
-   4 20 5B    #BB: $1  X read_num_seek_ahead #not impl for now
- 106 20 180   #BE: $6  X num
+   4 20 D0    #B8: $1  X put_offset (?)
+   4 20 17A   #BB: $1  X read_num_seek_ahead (@)
+ 106 20 183   #BE: $6  X read_num
  111 20 BE    #C1: $10 X
  10A 20 5B    #C4: $A  X err
- 106 20 180   #C7: $6  X num
+ 106 20 183   #C7: $6  X read_num
    0  0  5B   #CA: Z   Z err
    0  4 FFFF  #CD: Z $1 _ #nop, no jump
 
@@ -171,7 +173,7 @@
   28 28 D9    #D6: C C
    8 28 DC    #D9: I C  #getchar()  (since output_num jumps to handle_num)
    5 29 DF    #DC: $-1 N  #N = offset+1
-   0  0 200   #DF: Z Z output_num
+   0  0 209   #DF: Z Z output_num
    0  0 E5    #E2: 
    0  0 E8    #E5: 
    0  0 EB    #E8: 
@@ -201,8 +203,7 @@ FFF8 FFF7 FFF6 FFF5 FFF4 FFF3 FFF2 FFF1
 0000 FFF0 FFE0 FFD0 FFC0 FFB0 FFA0 FF90
 FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
-#140-17F
-0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0
+#140-16F
 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0
 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0
 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0
@@ -224,23 +225,31 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 #read_num: expects -char in C, uses X, parses until end of number, prints little-endian word
 #when number ends, if R LEQZ, output number
-#                  if R GTZ, jump to seek_n
+#                  if R GTZ, jump to seek_ahead
 #TODO: handle EOF
 
-#read_num_seek_ahead:  #sets R, so will return to seek_ahead when done
-   5 2B 183    #180: $-1 R
-#read_num:             #doesnt set R, returns through output_num
+#170-179
+0 0 0 0 0 0 0 0   0 0 
+
+
+#read_num_seek_ahead:  
+                       
+   5 2B 17D    #17A: $-1 R #set r so read_num returns to seek_ahead
+  28 28 180    #17D: C C
+   8 28 183    #180: I C   #getchar(), since curr char is @
+
+#read_num:             #doesnt set R, will return through output_num
   20 20 186    #183: X X
   28 20 189    #186: C X  #X has +char
  112 20 18C    #189: $20 X
- 10F 20 200    #18C:  $F X output    #<0
+ 10F 20 200    #18C:  $F X finish    #<0
  10A 20 1A7    #18F:  $A X num_dig   #0-9
- 107 20 200    #192:  $7 X output     <A
+ 107 20 200    #192:  $7 X finish     <A
  106 20 1A4    #195:  $6 X num_alpha  A-F
  111 20 19B    #198: $10 X 
- 10A 20 200    #19B:  $A X output     <a
+ 10A 20 200    #19B:  $A X finish     <a
  106 20 1A4    #19E:  $6 X num_alpha  a-f
-   0  0 200    #1A1:   Z Z output     >f
+   0  0 200    #1A1:   Z Z finish     >f
  126 20 1A7    #1A4: num_alpha:  $-6 X   #if alpha, value is X + F
  129 20 1AA    #1A7: num_dig:    $-9 X   #if digit, value is X + 9
    0  0 1B0    #1AA: Z Z shift_up        #now X is +value of number-char
@@ -265,39 +274,82 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    0 29 1D4    #1D1: Z N  #N += X
   28 28 1D7    #1D4: C C
    8 28 1DA    #1D7: I C  #getChar()
-   0  0 180    #1DA: Z Z handle_num
+   0  0 183    #1DA: Z Z read_num
    0  4 FFFF   #1DD: Z $1 _ #nop, no jump
 
 #1E0-1FF
 0 0 0 0 0 0 0 0    0 0 0 0 0 0 0 0
 0 0 0 0 0 0 0 0    0 0 0 0 0 0 0 0
 
+#finish_num:
+#goes to output_num if R==0, or seek_ahead if R>0
+   0 2B   206   #200: 0 R ?+3   # if R GTZ, jump to seek_ahead
+  2B 2B   260   #203: R R seek_ahead
+  2B 2B  209    #206: R R    #shouldn't need it but just to be safe
+
+#output_num:
 #   we just got a char that's not a num,
 #   print out contents of N, little-endian,
 #   clear N
 #   jump to handle_char (don't get a new one)
-#output_num:
-   A  A 203    #200: A A
-  29  0 206    #203: N Z
-   0  A 209    #206: Z A   
-   0  0 20C    #209: Z Z  #A=+N
-   B  B 20F    #20C: B B
- 13F  B 212    #20F: $-F0 B
- 12F  B 215    #212: $-F B #B=FF
-  10  0 218    #215: AND Z                    
-   0  9 21B    #218: Z O   #putchar(N & FF)
-   0  0 21E    #21B: Z Z
-   B  B 221    #21E: B B
- 128  B 224    #221: $-8 B #B=8
-  15  0 227    #224: RS Z
-   0  9 22A    #227: Z O   #putchar(N >> 8)
-  29 29 22D    #22A: N N   #clear n for next round
-   4 2A 230    #22D: $1 Off   #inc offset
-   0  0 233    #230: 
-   0  0 236    #233: 
-   0  0 A0     #236: Z Z handle_char
+   0  0  20C    #209:        
+   0  0  20F    #20C: 
+   A  A  212    #20F: A A
+  29  0  215    #212: N Z
+   0  A  218    #215: Z A   
+   0  0  21B    #218: Z Z  #A=+N
+   B  B  21E    #21B: B B
+ 13F  B  221    #21E: $-F0 B
+ 12F  B  224    #221: $-F B #B=FF
+  10  0  227    #224: AND Z                    
+   0  9  22A    #227: Z O   #putchar(N & FF)
+   0  0  22D    #22A: Z Z
+   B  B  230    #22D: B B
+ 128  B  233    #230: $-8 B #B=8
+  15  0  236    #233: RS Z
+   0  9  239    #236: Z O   #putchar(N >> 8)
+  29 29  23C    #239: N N   #clear n for next round
+   4 2A  23F    #23C: $1 Off   #inc offset
+   0  0  242    #23F: 
+   0  0  A0     #242: Z Z handle_char
+
+#245-25F
+          0 0 0    0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0    0 0 0 0 0 0 0 0
 
 
+
+#seek_ahead:
+#Takes target addr in N (+)
+#Steps until Offset = N
+#Clear N 
+#jmp handle_char (since coming from read_num)
+  20 20 263    #260: X X    
+  2A 20 266    #263: Off X      # Off is (-)
+  29 20 26C    #266: N   X ?+3  # X = Off - N
+   0  0  5E    #269: Z Z halt2 #if Off > N, seek backwards, error
+   0  0 26F    #26C: 
+   0  0 272    #26F:                 #jump to while, if X==0 will immediately break out
+   0  0  27E   #272: Z Z seek_while  #else will loop -X times
+ 12D  9 278    #275: $-D O      seek_loop: fill memory with halts (000D 0D 0D)
+   0  9 27B    #278: $0  O            #should work regardless of alignment
+   4 2A 27E    #27B: $1 Off           #we could just set it at the end, but this is nice
+   5 20  275   #27E: $-1 X loop seek_while:  seek #X++, loop while X LEQZ
+   0  0 284    #281:                                                                     
+   3  3 287    #284: T T               #test that Off(-) == N
+  2A  3 28A    #287: Off T
+  29  3  290   #28A: N T ?+3 #T must be <=0
+   0  0  61    #28D: Z Z halt3  #assert err
+   3  0  296   #290: T Z ?+3 #T must be >=0
+   0  0  61    #293: Z Z halt3   #assert Off(-) == N  (the assert isn't necessary)
+   0  0 299    #296: Z Z                              (but I thought it'd be neat)
+  29 29  A0    #299: N N handle_char
+
+#plan: take X=Off-N, need to output (-X words)
+#X+=1 (need to output -X + 1 words)
+#while X LEZ: (will run -X + 1 times)
+#  putchar putchar
+#  X++
 
 
 
