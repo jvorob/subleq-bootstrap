@@ -2,9 +2,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <err.h>
 
 #include "shared.h"
 #include "asm.h"
+
+
+//#define DEBUG_LOGGING
 
 //design q: 16-bit word-addressed or byte-addressed? byte-addressed b/c irl memory modules
 // (although could just chain two into a double-wide word-addressed mem)
@@ -52,7 +56,7 @@ struct vm_state global_vm;
 #define ALU_A 0xA
 #define ALU_B 0xB
 #define ALU_BASE 0x10
-#define ALU_MASK 0xF8 //top 5 bits, ALU gets 7 regs
+#define ALU_MASK 0xFFF8 //top 5 bits, ALU gets 7 regs
 
 #define ALU_AND 0x10
 #define ALU_OR  0x11
@@ -95,13 +99,23 @@ int16_t program_init[] = {
 
 //gets a char from stdin
 int16_t get_input() {
-    return getc(stdin);
+    int16_t c = getc(stdin);
+#ifdef DEBUG_LOGGING
+    fprintf(stderr, "Input: '%c', %x\n", c & 0xFF, c);
+#endif
+    return c;
 }
 
 //clamps output to 8 bits, prints to stdout
 void write_output(int16_t c) {
     putc(c & 0xFF, stdout);
-    //printf("Output: '%c', %x\n", c & 0xFF, c);
+#ifdef DEBUG_LOGGING
+    if(c >= 0x20 && c <= 0x7E) {
+        fprintf(stderr, "Output: '%c', %hx\n", c & 0xFF, c);
+    } else {
+        fprintf(stderr, "Output: nonprintable, %hx\n", c);
+    }
+#endif
 }
 
 #define SHOW_VAR(name,loc) fprintf(stderr, ", " #name "=%04hx", vm->mem[loc]);
@@ -111,6 +125,7 @@ void write_output(int16_t c) {
 int step(struct vm_state *vm) {
     vm->num_cycles++;
 
+#ifdef DEBUG_LOGGING
     fprintf(stderr, "DEBUG: at pc x%04hx", vm->pc);
 
     //optional debug printing
@@ -120,11 +135,12 @@ int step(struct vm_state *vm) {
     SHOW_VAR(A,ALU_A);
     SHOW_VAR(B,ALU_B);
     SHOW_VAR(Z,0x0);
-    SHOW_VAR(Z2,0x3);
-    SHOW_VAR(P,0x20);
-    //fprintf(stderr, ", P=%x (%d)", vm->mem[0x18], vm->mem[0x18]);
+    //SHOW_VAR(T,0x3);
+    SHOW_VAR_NEG(C,0x28);
+    SHOW_VAR(N,0x29);
 
     fprintf(stderr, "\n");
+#endif
 
     int16_t A =    vm->mem[vm->pc];
     int16_t B =    vm->mem[vm->pc+1];
@@ -142,23 +158,29 @@ int step(struct vm_state *vm) {
          if(A == IN_ADDR) { A_VAL = get_input(); } 
     //ALU ops
     else if((A & ALU_MASK) == ALU_BASE) {
-        printf("In ALU\n");
         switch(A) {
             case(ALU_AND):  A_VAL = vm->mem[ALU_A] &  vm->mem[ALU_B]; break;
             case(ALU_OR ):  A_VAL = vm->mem[ALU_A] |  vm->mem[ALU_B]; break;
             case(ALU_XOR):  A_VAL = vm->mem[ALU_A] ^  vm->mem[ALU_B]; break;
             case(ALU_LS ):  A_VAL = vm->mem[ALU_A] << vm->mem[ALU_B]; break;
-            case(ALU_RS ):  A_VAL = vm->mem[ALU_A] >> vm->mem[ALU_B]; break;
+            case(ALU_RS ):  A_VAL = ((uint16_t)vm->mem[ALU_A]) >> vm->mem[ALU_B]; break;
             default:        A_VAL = 0;
         }
+#ifdef DEBUG_LOGGING
+        fprintf(stderr, "In ALU: result=%4hx\n", A_VAL);
+#endif
     }
     //normal
     else                  { A_VAL = vm->mem[A]; }
 
     int16_t B_VAL = vm->mem[B];
 
+
     //Sub
     int16_t diff = B_VAL - A_VAL;
+
+    //fprintf(stderr, "DEBUG:   ops: A=%hx, A_val=%hx,   B=%hx, B_val=%hx,  B_val2=%hx\n",
+    //        A, A_VAL, B, B_VAL, diff);
 
     //Write back
     if(B == OUT_ADDR) { write_output(diff); }
@@ -168,7 +190,7 @@ int step(struct vm_state *vm) {
     if(diff <= 0) {
         //HALT: halts on Z Z ?-1, operands are same means always 0, infinite loop is halt
         if(NEXT == vm->pc) {
-            if(A == B) { printf("HALT\n"); return 1; }
+            if(A == B) { return 1; }
         }
 
         vm->pc = NEXT;
@@ -206,13 +228,13 @@ int run(struct vm_state *vm) {
 }
 
 
-//Reads bytes from stdin, slurps them into vm memory
-void load_binary(struct vm_state *vm) {
+//Reads bytes from file, slurps them into vm memory
+void load_binary_file(struct vm_state *vm, FILE *file) {
     long offset=0;
     char *cmem = (char *)vm->mem;
     
     int c;
-    while((c = getchar()) != EOF) {
+    while((c = getc(file)) != EOF) {
         if(offset >= MEM_SIZE * WORD_SIZE) {
             fprintf(stderr,"ERROR: binary > than %d words, exiting\n", MEM_SIZE);
             exit(1);
@@ -246,12 +268,27 @@ void run_default_program() {
     printf("=======\nExited with code %d\n", retval);
 }
 
-//loads a binary from stdin and executes it
+//loads a binary file and executes it
 //returns return value
-int run_binary() {
-    fprintf(stderr, "Loading binary from stdin\n");
+int run_binary(int argc, char *argv[]) {
+    //arg 0 is script name, arg 1 is 'bin'
+    if(argc <= 2){ fprintf(stderr, "ERROR: provide path to binary file or - for stdin\n"); exit(1); }
+    if(argc >= 4){ fprintf(stderr, "ERROR: expected 1 arg to bin"); exit(1); }
+    
+    char *fname = argv[2];
+    FILE *binfile;
+    if(strcmp(fname, "-") == 0) {
+        binfile = stdin;
+        fname = "stdin";
+    } else {
+        binfile = fopen(fname, "r");
+    }
+
+    if(binfile == NULL) { err(1, "Failed to open file %s", fname); }
+
+    fprintf(stderr, "Loading binary from %s\n", fname);
     init_vm(&global_vm);
-    load_binary(&global_vm);
+    load_binary_file(&global_vm, binfile);
     fprintf(stderr, "Running :\n=======\n");
     int retval = run(&global_vm);
     fprintf(stderr, "=======\nHalted with code %d after %ld steps\n", retval, global_vm.num_cycles);
@@ -262,7 +299,7 @@ int run_binary() {
 void print_usage() {
     fprintf(stderr, "Usage: \n");
     fprintf(stderr, "      subleq test # run default program \n");
-    fprintf(stderr, "      subleq bin  # read binary from stdin, run it\n");
+    fprintf(stderr, "      subleq bin FILE # read binary from file, run it\n");
     fprintf(stderr, "      subleq asm1 # run asm1 on stdin \n");
 }
 
@@ -278,7 +315,8 @@ int main(int argc, char *argv[]) {
             exit(0);
         }
         else if(strcmp(argv[1], "bin") == 0) {
-            int retcode=run_binary();
+
+            int retcode=run_binary(argc, argv);
             exit(retcode);
         }
         else if(strcmp(argv[1], "asm1") == 0) {
