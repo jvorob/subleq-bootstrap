@@ -7,7 +7,7 @@
 #can compile it with `grep <test.hex1 -v '#' | interp hex1 >test.bin`
 
 #Z, 0, entry Z2     #P1, M1, 0, 0
- 0  0  20    0       1 FFFF  0  0
+ 0  0  30    0       1 FFFF  0  0
 
 #0x8: I O A B     0  0xD:halt
       0 0 0 0     0  0 0 D
@@ -18,26 +18,27 @@
   0 0 0 0   0  0  0 0
   
 # 0x18: vars
-#  p v                p=0xFFFC=-0x40
-FFC0 0 0 0   0 0 0 0
+#  p v                p=0xFF00=-0x100
+FF00 0 0 0   0 0 0 0
 
 
-#0x20
-#loop:
- 19 19  ?  #  V   V  ?  
- 29 29  ?  #  X   X row?
- 18 29  ?  #  P   X  ? 
-  0 19  ?  #  X:_ V  ?   #0x29
+@30 #loop:
+ 19 19  ?  #  V    V  ?  
+ 40 40  ?  #  X    X row?
+ 18 40  ?  # $-100 X  ? 
+  0  0 40
+
+@40 #X is at 40
+  0 19  ?  #  X:_ V  ?  
  19  0  D  #  V   Z halt
   0  0  ?  #  Z   Z  ?    
-#0x32
  19  9  ?  #  V   O  ? 
-  4 18 20  #  P1  P loop
+  4 18 30  #  P1  P loop
 
-#0x38-0x3F
-0 0 0 0 0 0 0 0
 
-#0x40, "Hello World\n\0"
+
+@100
+# "Hello World\n\0"
 48 65 6C 6C    6F 20 57 6F    72 6C 64 0A  0 0 0 0
 
 #0x50

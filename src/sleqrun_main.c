@@ -138,6 +138,7 @@ int step(struct vm_state *vm) {
     //SHOW_VAR(T,0x3);
     SHOW_VAR_NEG(C,0x28);
     SHOW_VAR(N,0x29);
+    SHOW_VAR(R,0x2B);
 
     fprintf(stderr, "\n");
 #endif
