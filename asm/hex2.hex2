@@ -1,29 +1,18 @@
-# Attempt to write hex2 in hex1
+# Attempt to write hex2 in hex2
 #
 # Hex2 Spec:
 # Like hex1, handles hex numbers and '#' comments
 # Each number is output as a DWORD
 #
-# Also will support:
+# Also supports:
 # ? for inserting addr of next instruction (preventing stupid manual renumbering)
 # @1234 for skipping ahead to specified address
-#
-# Implementation details:
-# Add var Off(set) (in file)
-# Increment each time we finish_num
+# New returns codes
 
 
-#TODO: where I left off last
-#Parsing for ? and @ mostly finished
-#Retval exists, entry for Retval 1 exists
-#TODO: write seek_ahead
-#TODO: write return select code call it finish_num, rewire to it inst. of output_num
-#TODO: wire in seek_ahead funcs in handle_char
-
+#TODO: figure out subroutines and returns, first 1-level returns
 
 #niceties for later
-#speed up "inner loop" from next_char to handle_char
-#add 0xD_ page for halt codes
 #add initializer to reset entry to halt (catch runaway nops)
 
 ### NOTE ON CODE STRUCTURE:

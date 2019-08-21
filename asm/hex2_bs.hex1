@@ -13,14 +13,6 @@
 # Increment each time we finish_num
 
 
-#TODO: where I left off last
-#Parsing for ? and @ mostly finished
-#Retval exists, entry for Retval 1 exists
-#TODO: write seek_ahead
-#TODO: write return select code call it finish_num, rewire to it inst. of output_num
-#TODO: wire in seek_ahead funcs in handle_char
-
-
 #niceties for later
 #speed up "inner loop" from next_char to handle_char
 #add 0xD_ page for halt codes
