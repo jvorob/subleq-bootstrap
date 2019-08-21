@@ -169,7 +169,7 @@
 #N should already be 0
 #put + into N
   29 29 D3    #D0: N N
-  2A 29 40    #D3: Off N  #N = +offset (-O)
+  2A 29 D6    #D3: Off N  #N = +offset (-O)
   28 28 D9    #D6: C C
    8 28 DC    #D9: I C  #getchar()  (since output_num jumps to handle_num)
    5 29 DF    #DC: $-1 N  #N = offset+1
