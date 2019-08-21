@@ -124,3 +124,7 @@ drop_comment:
         return 0;
 }
 
+
+int main() {
+    hex_1();
+}

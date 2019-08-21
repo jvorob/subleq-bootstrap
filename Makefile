@@ -14,19 +14,28 @@ LDFLAGS = -L./src/libs
 #OBJS = obj1.o obj2.o obj3.o
 # Executable name
 
-srcdir=.
+srcdir=src
 objdir=build
 
 sources := $(wildcard $(srcdir)/*.c)
 headers := $(wildcard $(srcdir)/*.h)
 objects := $(patsubst $(srcdir)/%.c,$(objdir)/%.o,$(sources))
-bin_name := interp
+main_objs :=   $(filter     %main.o, $(objects))
+shared_objs := $(filter-out %main.o, $(objects))
+bins    := $(patsubst $(objdir)/%_main.o, %, $(main_objs))
 
 .PHONY: all
-all: $(bin_name)
+all: $(bins)
 
-$(bin_name): $(objects)
-	$(CC) $(CFLAGS) $(objects) -o $@
+.PHONY: test
+test:
+	@echo $(shared_objs)
+	@echo $(bins)
+
+
+
+$(bins): %:$(objdir)/%_main.o $(shared_objs)
+	$(CC) $(CFLAGS) $^ -o $@
 
 
 $(objects): $(headers)
@@ -40,4 +49,4 @@ $(objdir)/%.o: $(srcdir)/%.c
 .PHONY: clean
 clean:
 	rm -f $(objdir)/*
-	rm -f $(bin_name)
+	rm -f $(bins)

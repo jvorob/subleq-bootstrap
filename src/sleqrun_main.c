@@ -270,12 +270,9 @@ void run_default_program() {
 
 //loads a binary file and executes it
 //returns return value
-int run_binary(int argc, char *argv[]) {
+int run_binary(char *fname) {
     //arg 0 is script name, arg 1 is 'bin'
-    if(argc <= 2){ fprintf(stderr, "ERROR: provide path to binary file or - for stdin\n"); exit(1); }
-    if(argc >= 4){ fprintf(stderr, "ERROR: expected 1 arg to bin"); exit(1); }
     
-    char *fname = argv[2];
     FILE *binfile;
     if(strcmp(fname, "-") == 0) {
         binfile = stdin;
@@ -298,35 +295,27 @@ int run_binary(int argc, char *argv[]) {
 //print usage to stderr
 void print_usage() {
     fprintf(stderr, "Usage: \n");
-    fprintf(stderr, "      subleq test # run default program \n");
-    fprintf(stderr, "      subleq bin FILE # read binary from file, run it\n");
-    fprintf(stderr, "      subleq hex1 # run hex1 on stdin \n");
+    fprintf(stderr, "      sleqrun -      # read binary from stdin until EOF, then run it\n");
+    fprintf(stderr, "      sleqrun FILE   # read binary from file, run it\n");
 }
 
 int main(int argc, char *argv[]) {
     if(argc == 1) {
-        //no args
-        print_usage(); exit(0);
-    } else {
-        //argc >= 2, at least 1 args
-        if(strcmp(argv[1], "test") == 0) {
-            fprintf(stderr, "Running default test program\n");
-            run_default_program();
-            exit(0);
-        }
-        else if(strcmp(argv[1], "bin") == 0) {
+        print_usage(); 
+        exit(1);
+    } else if (argc >= 3) {
+        fprintf(stderr, "ERROR: expected at most 1 arg");
+        print_usage(); 
+        exit(1);
 
-            int retcode=run_binary(argc, argv);
+    } else { //exactly 1 arg
+        if(strcmp(argv[1], "--test") == 0) {
+            //might be useful hook for later
+            fprintf(stderr, "TEST MODE\n");
+            exit(0);
+        } else {
+            int retcode=run_binary(argv[1]);
             exit(retcode);
-        }
-        else if(strcmp(argv[1], "hex1") == 0) {
-            fprintf(stderr, "Assembling hex_1 \n");
-            hex_1();
-        }
-        else {
-            fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[1]);
-            print_usage();
-            exit(1);
         }
     }
 

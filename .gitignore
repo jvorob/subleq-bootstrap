@@ -1,5 +1,7 @@
 *.swp
 *.swo
 build/
-interp
 *.bin
+
+sleqrun
+hex1
