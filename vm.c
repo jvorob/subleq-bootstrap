@@ -5,7 +5,7 @@
 #include <err.h>
 
 #include "shared.h"
-#include "asm.h"
+#include "hex.h"
 
 
 //#define DEBUG_LOGGING
@@ -300,7 +300,7 @@ void print_usage() {
     fprintf(stderr, "Usage: \n");
     fprintf(stderr, "      subleq test # run default program \n");
     fprintf(stderr, "      subleq bin FILE # read binary from file, run it\n");
-    fprintf(stderr, "      subleq asm1 # run asm1 on stdin \n");
+    fprintf(stderr, "      subleq hex1 # run hex1 on stdin \n");
 }
 
 int main(int argc, char *argv[]) {
@@ -319,9 +319,9 @@ int main(int argc, char *argv[]) {
             int retcode=run_binary(argc, argv);
             exit(retcode);
         }
-        else if(strcmp(argv[1], "asm1") == 0) {
-            fprintf(stderr, "Assembling asm_1 \n");
-            asm_1();
+        else if(strcmp(argv[1], "hex1") == 0) {
+            fprintf(stderr, "Assembling hex_1 \n");
+            hex_1();
         }
         else {
             fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[1]);

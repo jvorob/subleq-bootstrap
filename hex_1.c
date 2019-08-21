@@ -3,7 +3,7 @@
 #include <string.h>
 
 
-#include "asm.h"
+#include "hex.h"
 
 
 /* Design goals:
@@ -24,7 +24,7 @@
 //on error, returns 1
 //else returns 0
 //prints compiled size
-int asm_1() {
+int hex_1() {
     int c;
     long offset = 0; //in dwords
     int curr_num = 0;

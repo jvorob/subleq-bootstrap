@@ -2,7 +2,7 @@
 #Copies bytes from 0x40 until it hits a null,
 #text string is stored as 0041, 0020, etc
 #prints to stdout
-#can compile it with `grep <test.asm1 -v '#' | interp asm1 >test.bin`
+#can compile it with `grep <test.hex1 -v '#' | interp hex1 >test.bin`
 
 #Z, 0, entrypoint Z2     #P1, M1, 0, 0
  0  0     20      0       1 FFFF  0  0
