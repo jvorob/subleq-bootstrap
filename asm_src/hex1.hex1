@@ -1,4 +1,12 @@
 # Attempt to write hex1 in hex1
+#
+# Details of hex1:
+#
+# Valid digits are [0-9A-Fa-f]
+# Whitespace is ignored, except to separate numbers
+# Comments with '#' to \n
+# Accumulates digits until next non-digit, 
+# then outputs 16-bit value, low byte then high
 
 
 ### NOTE ON CODE STRUCTURE:
