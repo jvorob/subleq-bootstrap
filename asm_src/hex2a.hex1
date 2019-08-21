@@ -1,0 +1,368 @@
+# Attempt to write hex2 in hex1
+#
+# Hex2 Spec:
+# Like hex1, handles hex numbers and '#' comments
+# Each number is output as a DWORD
+#
+# Also will support:
+# ? for inserting addr of next instruction (preventing stupid manual renumbering)
+# @1234 for skipping ahead to specified address
+#
+# Implementation details:
+# Add var Off(set) (in file)
+# Increment each time we finish_num
+
+
+#TODO: where I left off last
+#Parsing for ? and @ mostly finished
+#Retval exists, entry for Retval 1 exists
+#TODO: write seek_ahead
+#TODO: write return select code call it finish_num, rewire to it inst. of output_num
+#TODO: wire in seek_ahead funcs in handle_char
+
+
+#niceties for later
+#speed up "inner loop" from next_char to handle_char
+
+### NOTE ON CODE STRUCTURE:
+# Code is grouped into blocks of 0x20 bytes
+# this isn't divisible by 3, so the last instruction is a nop,
+# it jumps to the next 0x20 aligned block
+# This way code can be shuffled around without renumbering everything,
+# especially if leaving some space of NOPS in code blocks
+
+# =========  HEADER
+
+# 0x0
+#Z T entry       P1  M1  0 0
+ 0 0  40   0      1 FFFF 0 0
+
+# 0x8
+# I O A B     _ 0xD:halt(0)
+  0 0 0 0     0 0 0 D
+
+# 0x10: ALU
+# & | ^ _   << >> _ _
+  0 0 0 0   0  0  0 0
+  
+# 0x18 
+#           _ 0x1D: halt(1)
+  0 0 0 0   0 1 1 1D 
+
+# ========  REGISTERS AND CO.
+
+#0x20: Registers
+# X Y Z W
+  0 0 0 0     0 0 0 0
+
+#0x28: Vars
+# C    N   Off   R
+  0    0    0    0      0    0    0    0 
+#C is last char read (-)
+#N is where read_num puts its result (+)
+#Off is current offset in binary (-)
+#R is retval(sorta) for read_num. If R LEQZ, output_num. If R GTZ, seek_ahead
+
+
+#0x30: Constants
+   0 0 0 0   0 0 0 0
+   0 0 0 0   0 0 0 0
+
+# ======== CODE
+# C is curr char (negated)
+# N is curr num
+
+#Snippets:
+#
+# JLEZ(X,LOC): Z X LOC 
+# JGEZ(X,LOC): T T; X T LOC
+# JGTZ(X,LOC): T T; $-1 T; X T LOC;
+# JLTZ(X,LOC): T T; X T ?+3; Z Z LOC;
+#
+# SUBJGE(X,Y,LOC): X Y LOC;            #Y -= X
+# SUBJLE(X,Y,LOC): T T; X Y; Y T LOC;  #Y -= X
+#
+#
+# JGE(X,Y,LOC): T T; Y Z; Z T; Z Z; X T LOC;
+# JLE: mirror
+
+#next_char:
+   0  0 43    #40: 
+  20 20 46    #43: X X
+  28 28 49    #46: C C
+   8 28 4c    #49: I C 
+  28 20 4F    #4C: C X
+   4 20  D    #4F: $1 X D #if X<0 = T>0 = X-1 <=0 then HALT
+   5 20 55    #52: $-1 X #put X back to normal
+   0  0 A0    #55: Z Z handle_char 
+   0  0 5B    #58:      
+   1  1 5B    #5B:   err: halt(1)
+   0  0 40    #5E:
+   0  0 64    #61: 
+   0  0 67    #64: 
+   0  0 6A    #67: 
+   0  0 6D    #6A: 
+   0  4 FFFF  #6D: Z $1 _ #nop, no jump
+
+# keep looping until \n, then go to next_char
+#comment:
+  20 20 73    #70:  X X
+  28 28 76    #73:  C C
+   8 28 79    #76:  I C
+  28 20 7C    #79:  C X
+ 109 20 70    #7C:  $9 X comment   <a
+   4 20 40    #7F:  $1 X next_char  a
+  20 20 73    #82:  X X comment+3  >a
+   0  0 88    #85: 
+   0  0 8B    #88: 
+   0  0 8E    #8B: 
+   0  0 91    #8E: 
+   0  0 94    #91: 
+   0  0 97    #94: 
+   0  0 9A    #97: 
+   0  0 9D    #9A: 
+   0  4 FFFF  #9D: Z $1 _ #nop, no jump
+
+
+#These are the comparisons we need to make
+#we'll do repeated "if X <= foo, jump bar"
+#for efficiency, we'll do "X-=foo. if X<=0, jump bar"
+#difference between successive characters are in left column
+
+#diff val char
+# 20 20 ' ' nl
+#  2 22 <#  err
+#  1 23  #  comm
+#  C 2F <0  err
+#  A 39  9  dig
+#  5 3E <?  err
+#  1 3F  ?  put_offset
+#  1 40  @  read_num_seek_ahead
+#  6 46  F  dig
+# 1A 60 <a  err
+#  6 66  f  dig
+
+#handle_char:
+#expects neg char in C, uses X
+#jumps where needed
+  20 20 A3    #A0:  X  X
+  28 20 A6    #A3:  C  X
+ 112 20 40    #A6: $20 X next_char
+ 102 20 5B    #A9: $2  X err
+ 101 20 70    #AC: $1  X comment
+ 10C 20 5B    #AF: $C  X err
+ 10A 20 180   #B2: $A  X num
+ 105 20 5B    #B5: $5  X err
+   4 20 D0    #B8: $1  X put_offset
+   4 20 5B    #BB: $1  X read_num_seek_ahead #not impl for now
+ 106 20 180   #BE: $6  X num
+ 111 20 BE    #C1: $10 X
+ 10A 20 5B    #C4: $A  X err
+ 106 20 180   #C7: $6  X num
+   0  0  5B   #CA: Z   Z err
+   0  4 FFFF  #CD: Z $1 _ #nop, no jump
+
+#put_offset: 
+#actually puts offset+1, so it points to next instrucc
+#N should already be 0
+#put + into N
+  29 29 D3    #D0: N N
+  2A 29 40    #D3: Off N  #N = +offset (-O)
+  28 28 D9    #D6: C C
+   8 28 DC    #D9: I C  #getchar()  (since output_num jumps to handle_num)
+   5 29 DF    #DC: $-1 N  #N = offset+1
+   0  0 200   #DF: Z Z output_num
+   0  0 E5    #E2: 
+   0  0 E8    #E5: 
+   0  0 EB    #E8: 
+   0  0 EE    #EB: 
+   0  0 F1    #EE: 
+   0  0 F4    #F1: 
+   0  0 F7    #F4: 
+   0  0 FA    #F7: 
+   0  0 FD    #FA: 
+   0  4 FFFF  #FD: Z $1 _ #nop, no jump
+
+
+
+
+#100 - 110 constants
+
+#10_: 0-F
+0 1 2 3 4 5 6 7 8 9 A B C D E F
+#11_: 0-F
+0 10 20 30 40 50 60 70 80 90 A0 B0 C0 D0 E0 F0
+
+#12_: -0 - -F
+0000 FFFF FFFE FFFD FFFC FFFB FFFA FFF9 
+FFF8 FFF7 FFF6 FFF5 FFF4 FFF3 FFF2 FFF1
+
+#13_: -00 - -F0 (TODO)
+0000 FFF0 FFE0 FFD0 FFC0 FFB0 FFA0 FF90
+FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
+
+#140-17F
+0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0
+
+
+
+#part 2: read_num
+#diff val char
+# 2F 2F <0  fin
+#  A 39  9  num_dig
+#  7 40 <A  fin
+#  6 46  F  num_alpha
+# 1A 60 <a  fin
+#  6 66  f  num_alpha
+#           fin
+#
+
+#CODE
+
+#read_num: expects -char in C, uses X, parses until end of number, prints little-endian word
+#when number ends, if R LEQZ, output number
+#                  if R GTZ, jump to seek_n
+#TODO: handle EOF
+
+#read_num_seek_ahead:  #sets R, so will return to seek_ahead when done
+   5 2B 183    #180: $-1 R
+#read_num:             #doesnt set R, returns through output_num
+  20 20 186    #183: X X
+  28 20 189    #186: C X  #X has +char
+ 112 20 18C    #189: $20 X
+ 10F 20 200    #18C:  $F X output    #<0
+ 10A 20 1A7    #18F:  $A X num_dig   #0-9
+ 107 20 200    #192:  $7 X output     <A
+ 106 20 1A4    #195:  $6 X num_alpha  A-F
+ 111 20 19B    #198: $10 X 
+ 10A 20 200    #19B:  $A X output     <a
+ 106 20 1A4    #19E:  $6 X num_alpha  a-f
+   0  0 200    #1A1:   Z Z output     >f
+ 126 20 1A7    #1A4: num_alpha:  $-6 X   #if alpha, value is X + F
+ 129 20 1AA    #1A7: num_dig:    $-9 X   #if digit, value is X + 9
+   0  0 1B0    #1AA: Z Z shift_up        #now X is +value of number-char
+   0  4 FFFF   #1AD: Z $1 _ #nop, no jump
+
+
+
+#shift_up:    
+#N = N<<4 + X, getchar(), jmp read_num
+#TODO: err out on overflow
+   0  0 1B3    #1B0: 
+   0  0 1B6    #1B3: 
+   0  0 1B9    #1B6: 
+   A  A 1BC    #1B9: A A
+  29  A 1BF    #1BC: N A
+   B  B 1C2    #1BF: B B
+ 124  B 1C5    #1C2: $-4 B
+  29 29 1C8    #1C5: N N
+  14 29 1CB    #1C8: LS N  #N << 4 (negativeness wouldn't matter if it wasn't overflowing anyway)
+   0  0 1CE    #1CB:              
+  20  0 1D1    #1CE: X Z
+   0 29 1D4    #1D1: Z N  #N += X
+  28 28 1D7    #1D4: C C
+   8 28 1DA    #1D7: I C  #getChar()
+   0  0 180    #1DA: Z Z handle_num
+   0  4 FFFF   #1DD: Z $1 _ #nop, no jump
+
+#1E0-1FF
+0 0 0 0 0 0 0 0    0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0    0 0 0 0 0 0 0 0
+
+#   we just got a char that's not a num,
+#   print out contents of N, little-endian,
+#   clear N
+#   jump to handle_char (don't get a new one)
+#output_num:
+   A  A 203    #200: A A
+  29  0 206    #203: N Z
+   0  A 209    #206: Z A   
+   0  0 20C    #209: Z Z  #A=+N
+   B  B 20F    #20C: B B
+ 13F  B 212    #20F: $-F0 B
+ 12F  B 215    #212: $-F B #B=FF
+  10  0 218    #215: AND Z                    
+   0  9 21B    #218: Z O   #putchar(N & FF)
+   0  0 21E    #21B: Z Z
+   B  B 221    #21E: B B
+ 128  B 224    #221: $-8 B #B=8
+  15  0 227    #224: RS Z
+   0  9 22A    #227: Z O   #putchar(N >> 8)
+  29 29 22D    #22A: N N   #clear n for next round
+   4 2A 230    #22D: $1 Off   #inc offset
+   0  0 233    #230: 
+   0  0 236    #233: 
+   0  0 A0     #236: Z Z handle_char
+
+
+
+
+
+
+# ============ ETC
+# ALU-less shift and add
+#shift_and_add: N = N<<4 + X
+# T T
+# N Z
+# N Z
+# Z T
+# Z T
+# Z Z #T=4*N
+# N N
+# T Z
+# T Z
+# Z N
+# Z N
+# Z Z # N = 16 * oldn
+
+# X Z     N+= X
+# Z N
+# Z Z
+
+#================== SPARE CODE BLOCKS
+
+#16 instructions, x30 words, can be relocated with
+#s/\v<6/9/g
+#s/\v<5/8/g
+#s/\v<4/7/g
+#Leave a nop at the end and the blocks will nop-slide together
+
+   0  0 73    #70: 
+   0  0 76    #73: 
+   0  0 79    #76: 
+   0  0 7C    #79: 
+   0  0 7F    #7C: 
+   0  0 82    #7F: 
+   0  0 85    #82: 
+   0  0 88    #85: 
+   0  0 8B    #88: 
+   0  0 8E    #8B: 
+   0  0 91    #8E: 
+   0  0 94    #91: 
+   0  0 97    #94: 
+   0  0 9A    #97: 
+   0  0 9D    #9A: 
+   0  4 FFFF  #9D: Z $1 _ #nop, no jump
+
+
+
+
+   0  0 183    #180: 
+   0  0 186    #183: 
+   0  0 189    #186: 
+   0  0 18C    #189: 
+   0  0 18F    #18C: 
+   0  0 192    #18F: 
+   0  0 195    #192: 
+   0  0 198    #195: 
+   0  0 19B    #198: 
+   0  0 19E    #19B: 
+   0  0 1A1    #19E: 
+   0  0 1A4    #1A1: 
+   0  0 1A7    #1A4: 
+   0  0 1AA    #1A7: 
+   0  0 1AD    #1AA: 
+   0  4 FFFF   #1AD: Z $1 _ #nop, no jump
