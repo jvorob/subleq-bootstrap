@@ -64,6 +64,7 @@ struct vm_state global_vm;
 #define ALU_LS  0x14
 #define ALU_RS  0x15
 
+//Test program: should output 'A' and exit ?
 int16_t program_init[] = {
       //0x0 
       //Z     entry  Z2      P1   M1
@@ -208,9 +209,13 @@ int step(struct vm_state *vm) {
 //pc = 0
 void init_vm(struct vm_state *vm) {
     memset(vm->mem, 0, (MEM_SIZE + MEM_BUFF) * WORD_SIZE);
-    memcpy(vm->mem, program_init, sizeof(program_init));
     vm->pc = 0;
     vm->num_cycles=0;
+}
+
+//Loads the hardcoded test program in program_init
+void load_test_program(struct vm_state *vm) {
+    memcpy(vm->mem, program_init, sizeof(program_init));
 }
 
 //Runs specified memory
@@ -264,6 +269,7 @@ void load_binary_file(struct vm_state *vm, FILE *file) {
 void run_default_program() {
     printf("Initializing...\n");
     init_vm(&global_vm);
+    load_test_program(&global_vm);
     printf("Running :\n=======\n");
     int retval = run(&global_vm);
     printf("=======\nExited with code %d\n", retval);
