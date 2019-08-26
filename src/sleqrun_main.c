@@ -22,6 +22,19 @@
 
 
 // DOCS:
+// Basics: 
+// Executing from PC
+// if next 3 words at PC are A, B, NEXT
+// do mem[B] -= mem[A]
+// if(mem[B]<=0) pc = NEXT; else pc+=3
+//
+// CAVEAT:
+//    do the assign before jumping, so that we can modify NEXT before jump
+//
+// CAVEAT:
+//    we have a 64k memory space
+//    addresses >32k will be negative numbers. therefore, interpret addresses as unsigned
+//
 // Program starts execution from 0x0
 // Program halts if NEXT==? and A==B
 // Return value is A
@@ -144,9 +157,9 @@ int step(struct vm_state *vm) {
     fprintf(stderr, "\n");
 #endif
 
-    int16_t A =    vm->mem[vm->pc];
-    int16_t B =    vm->mem[vm->pc+1];
-    int16_t NEXT = vm->mem[vm->pc+2];
+    //NOTE: A and B are addresses, should be unsigned
+    uint16_t A =    vm->mem[vm->pc];
+    uint16_t B =    vm->mem[vm->pc+1];
 
     // special cases:
     // 8 is stdin
@@ -154,7 +167,8 @@ int step(struct vm_state *vm) {
     // if *A==8, read one character from stdin, subtract it from *B 
     // if *B==9, write -*B to stdout
     
-    //Fetch vals
+    // ==== Fetch vals
+    //NOTE: A_VAL and B_VALS should be signed, since we do arithmetic/tests w/ them
     int16_t A_VAL;
     //stdin
          if(A == IN_ADDR) { A_VAL = get_input(); } 
@@ -178,22 +192,25 @@ int step(struct vm_state *vm) {
     int16_t B_VAL = vm->mem[B];
 
 
-    //Sub
+    // === SUBTRACT AND WRITE BACK
     int16_t diff = B_VAL - A_VAL;
-
     //fprintf(stderr, "DEBUG:   ops: A=%hx, A_val=%hx,   B=%hx, B_val=%hx,  B_val2=%hx\n",
     //        A, A_VAL, B, B_VAL, diff);
-
-    //Write back
+    
     if(B == OUT_ADDR) { write_output(diff); }
     else       { vm->mem[B] = diff; }
 
-    //Jump LEQ
+    // === Advance PC 
+    // (note: only fetch next after the modify)
+    // (note2: actually this wont matter because if you want to jump to apointer
+    // it will only work if it's <=0 (>32k?))
+    // hmmm
+
     if(diff <= 0) {
+        uint16_t NEXT = vm->mem[vm->pc+2];
+
         //HALT: halts on Z Z ?-1, operands are same means always 0, infinite loop is halt
-        if(NEXT == vm->pc) {
-            if(A == B) { return 1; }
-        }
+        if(NEXT == vm->pc) { if(A == B) { return 1;} }
 
         vm->pc = NEXT;
     } else {
