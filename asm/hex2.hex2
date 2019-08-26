@@ -1,4 +1,4 @@
-# Attempt to write hex2 in hex2
+# Implementation of hex2 in hex2
 #
 # Hex2 Spec:
 # Like hex1, handles hex numbers and '#' comments
@@ -9,18 +9,9 @@
 # @1234 for skipping ahead to specified address
 # New returns codes
 
-
-#TODO: figure out subroutines and returns, first 1-level returns
-
 #niceties for later
 #add initializer to reset entry to halt (catch runaway nops)
 
-### NOTE ON CODE STRUCTURE:
-# Code is grouped into blocks of 0x20 bytes
-# this isn't divisible by 3, so the last instruction is a nop,
-# it jumps to the next 0x20 aligned block
-# This way code can be shuffled around without renumbering everything,
-# especially if leaving some space of NOPS in code blocks
 
 # =========  HEADER
 

@@ -311,7 +311,7 @@ int main(int argc, char *argv[]) {
         print_usage(); 
         exit(1);
     } else if (argc >= 3) {
-        fprintf(stderr, "ERROR: expected at most 1 arg");
+        fprintf(stderr, "ERROR: expected at most 1 arg\n");
         print_usage(); 
         exit(1);
 

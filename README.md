@@ -58,6 +58,16 @@ new features of the hex2 language.
 - Different exit codes: 0 for succ, 1 for bad char, 2 for seek backwards
 
 
+### hex3: (WIP)
+- Supports ?+offset, which should make it easy to code indirect access and jumps
+
+
+### hex4: (TODO)
+- Supports '-NUM', e.g. -1, -FF (nice to have and shouldn't be too hard at this point)
+- Support ?-offset
+- +/- literals (for now only support 0-F, 00-F0, 000-F00, and 0000-F000, i.e. one nibble set)
+
+
 
 # Misc. Thoughts
 
