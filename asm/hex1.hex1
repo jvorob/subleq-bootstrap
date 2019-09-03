@@ -73,8 +73,8 @@
   28 28 49    #46: C C
    8 28 4c    #49: I C 
   28 20 4F    #4C: C X
-   4 20  D    #4F: $1 X D #if X<0 = T>0 = X-1 <=0 then HALT
-   5 20 55    #52: $-1 X #put X back to normal
+   5 20  D    #4F: $-1 X D #if X<0 = T>0 = X+1 <=0 then HALT
+   4 20 55    #52: $1  X #put X back to normal
    0  0 A0    #55: Z Z handle_char 
    0  0 5B    #58:      
    1  1 5B    #5B:   err: halt(1)

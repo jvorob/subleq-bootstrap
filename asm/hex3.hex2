@@ -122,8 +122,8 @@
 # and so on with successive differences
   20 20  ?    #  :  X  X
   28 20  ?    #  :  C  X
-   4 20 D0    #  : $1  X halt0     #char <0 == EOF
-   5 20  ?    #  : $-1 X 
+   5 20 D0    #  : $-1 X halt0     #char <0 == EOF
+   4 20  ?    #  : $1  X 
  112 20 90    #  : $20 X next_char #' ' or \n     #TODO: make 0x21 constant
  102 20 D3    #  : $2  X halt1     #invalid char
  101 20 70    #  : $1  X comment
