@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+typedef char bool;
+#define TRUE 1
+#define FALSE 0
+
 #define MEM_BUFF 20 //how much extra padding on the end, really should only need 2 words but whatever
 #define WORD_SIZE 2
 #define MEM_SIZE 65536

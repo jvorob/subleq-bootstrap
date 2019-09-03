@@ -8,8 +8,6 @@
 #include "hex.h"
 
 
-//#define DEBUG_LOGGING
-
 //design q: 16-bit word-addressed or byte-addressed? byte-addressed b/c irl memory modules
 // (although could just chain two into a double-wide word-addressed mem)
 // let's do 16-bit
@@ -49,14 +47,15 @@
 //  ALU &,|,^,>>,<<: contains A op B
 //  >> doesn't fill in top negative bits
 
-
-
 //struct vm_state defined in shared.h
 
+// =============== GLOBALS
+bool glb_DEBUGGING_ENABLED = FALSE;
+struct vm_state global_vm;
 
+// =============== CONSTANTS
 #define LOG_PREFIX "DEBUG-"
 
-struct vm_state global_vm;
 
 #define IN_ADDR  8
 #define OUT_ADDR 9
@@ -114,33 +113,36 @@ int16_t program_init[] = {
        0,   0,   0,   0,     0,   0,   0,   0,
 };
 
+
+// ====================== FUNCS
+
 //gets a char from stdin
 int16_t get_input() {
     int16_t c = getc(stdin);
-#ifdef DEBUG_LOGGING
-    if(c == '\n') {
-        fprintf(stderr, LOG_PREFIX "Input: '\\n', %hx\n", c);
-    } else if(c >= 0x20 && c <= 0x7E ) {
-        fprintf(stderr, LOG_PREFIX "Input: '%c', %hx\n", c & 0xFF, c);
-    } else {
-        fprintf(stderr, LOG_PREFIX "Input: nonprintable, %hx\n", c);
+    if(glb_DEBUGGING_ENABLED) {
+        if(c == '\n') {
+            fprintf(stderr, LOG_PREFIX "Input: '\\n', %hx\n", c);
+        } else if(c >= 0x20 && c <= 0x7E ) {
+            fprintf(stderr, LOG_PREFIX "Input: '%c', %hx\n", c & 0xFF, c);
+        } else {
+            fprintf(stderr, LOG_PREFIX "Input: nonprintable, %hx\n", c);
+        }
     }
-#endif
     return c;
 }
 
 //clamps output to 8 bits, prints to stdout
 void write_output(int16_t c) {
     putc(c & 0xFF, stdout);
-#ifdef DEBUG_LOGGING
-    if(c == '\n') {
-        fprintf(stderr, LOG_PREFIX "Output: '\\n', %hx\n", c);
-    } else if(c >= 0x20 && c <= 0x7E ) {
-        fprintf(stderr, LOG_PREFIX "Output: '%c', %hx\n", c & 0xFF, c);
-    } else {
-        fprintf(stderr, LOG_PREFIX "Output: nonprintable, %hx\n", c);
+    if(glb_DEBUGGING_ENABLED) {
+        if(c == '\n') {
+            fprintf(stderr, LOG_PREFIX "Output: '\\n', %hx\n", c);
+        } else if(c >= 0x20 && c <= 0x7E ) {
+            fprintf(stderr, LOG_PREFIX "Output: '%c', %hx\n", c & 0xFF, c);
+        } else {
+            fprintf(stderr, LOG_PREFIX "Output: nonprintable, %hx\n", c);
+        }
     }
-#endif
 }
 
 #define SHOW_VAR(name,loc) fprintf(stderr, ", " #name "=%04hx", vm->mem[loc]);
@@ -150,26 +152,26 @@ void write_output(int16_t c) {
 int step(struct vm_state *vm) {
     vm->num_cycles++;
 
-#ifdef DEBUG_LOGGING
-    fprintf(stderr, LOG_PREFIX "OP: PC=x%04hx", vm->pc);
+    if(glb_DEBUGGING_ENABLED){
+        fprintf(stderr, LOG_PREFIX "OP: PC=x%04hx", vm->pc);
 
-    //optional debug printing
-    SHOW_VAR_NEG(X,X_ADDR);
-    SHOW_VAR_NEG(Y,Y_ADDR);
+        //optional debug printing
+        SHOW_VAR_NEG(X,X_ADDR);
+        SHOW_VAR_NEG(Y,Y_ADDR);
 
-    SHOW_VAR(A,ALU_A);
-    SHOW_VAR(B,ALU_B);
-    SHOW_VAR_NEG(TCnt,0x2C);
-    SHOW_VAR_NEG(TAB,0x800);
-    SHOW_VAR_NEG(TB2,0x802);
-    //SHOW_VAR(Z,0x0);
-    //SHOW_VAR(T,0x3);
-    SHOW_VAR_NEG(R,0x27);
-    //SHOW_VAR_NEG(C,0x28);
-    //SHOW_VAR(N,0x29);
+        SHOW_VAR(A,ALU_A);
+        SHOW_VAR(B,ALU_B);
+        SHOW_VAR_NEG(TCnt,0x2C);
+        SHOW_VAR_NEG(TAB,0x800);
+        SHOW_VAR_NEG(TB2,0x802);
+        //SHOW_VAR(Z,0x0);
+        //SHOW_VAR(T,0x3);
+        SHOW_VAR_NEG(R,0x27);
+        //SHOW_VAR_NEG(C,0x28);
+        //SHOW_VAR(N,0x29);
 
-    fprintf(stderr, "\n");
-#endif
+        fprintf(stderr, "\n");
+    }
 
     //NOTE: A and B are addresses, should be unsigned
     uint16_t A =    vm->mem[vm->pc];
@@ -196,9 +198,10 @@ int step(struct vm_state *vm) {
             case(ALU_RS ):  A_VAL = ((uint16_t)vm->mem[ALU_A]) >> vm->mem[ALU_B]; break;
             default:        A_VAL = 0;
         }
-#ifdef DEBUG_LOGGING
-        fprintf(stderr, LOG_PREFIX "ALU: result=%4hx\n", A_VAL);
-#endif
+
+        if(glb_DEBUGGING_ENABLED) {
+            fprintf(stderr, LOG_PREFIX "ALU: result=%4hx\n", A_VAL);
+        }
     }
     //normal
     else                  { A_VAL = vm->mem[A]; }
@@ -335,9 +338,51 @@ void print_usage() {
     fprintf(stderr, "Usage: \n");
     fprintf(stderr, "      sleqrun -      # read binary from stdin until EOF, then run it\n");
     fprintf(stderr, "      sleqrun FILE   # read binary from file, run it\n");
+    fprintf(stderr, "    Options:\n");
+    fprintf(stderr, "      --debug: enables debugging output\n");
 }
 
+
+// Arg Parsing stuff
+// options 
+
 int main(int argc, char *argv[]) {
+
+
+    // ========== HANDLE OPTION FLAGS
+    //discards processed opts, shifting argv down
+    int read_i = 1;  //start at first arg
+    int shift_amount = 0;
+    for(; read_i < argc; read_i++) {
+
+        //copy this arg down to account for removed args
+        argv[read_i - shift_amount] = argv[read_i]; 
+        //printf("Arg %d: %s\n", read_i, argv[read_i]);
+        
+        //long opts
+        char *curr_arg = argv[read_i];
+        if( curr_arg[0] == '-' && curr_arg[1] == '-') {
+
+            if(0 == strcmp(curr_arg, "--debug")) {
+                glb_DEBUGGING_ENABLED = TRUE;
+            } else {
+                fprintf(stderr, "ERROR: Unknown option '%s'\n", curr_arg);
+                print_usage();
+                exit(1);
+            }
+
+            shift_amount++; //shift down
+        }
+    }
+    argc -= shift_amount; //update argc to account for removed elements
+
+    //printf("\nHandled -- args, showing updated args\n");
+    //for(int i = 1; i < argc; i++) {
+    //    printf("Arg %d: %s\n", i, argv[i]);
+    //}
+
+
+    // ================ PARSE POSITIONAL FLAGS
     if(argc == 1) {
         print_usage(); 
         exit(1);
