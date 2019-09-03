@@ -159,11 +159,14 @@ int step(struct vm_state *vm) {
 
     SHOW_VAR(A,ALU_A);
     SHOW_VAR(B,ALU_B);
-    SHOW_VAR(Z,0x0);
+    SHOW_VAR_NEG(TCnt,0x2C);
+    SHOW_VAR_NEG(TAB,0x800);
+    SHOW_VAR_NEG(TB2,0x802);
+    //SHOW_VAR(Z,0x0);
     //SHOW_VAR(T,0x3);
-    SHOW_VAR_NEG(C,0x28);
-    SHOW_VAR(N,0x29);
-    SHOW_VAR(R,0x2B);
+    SHOW_VAR_NEG(R,0x27);
+    //SHOW_VAR_NEG(C,0x28);
+    //SHOW_VAR(N,0x29);
 
     fprintf(stderr, "\n");
 #endif

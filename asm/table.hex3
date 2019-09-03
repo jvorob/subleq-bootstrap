@@ -1,0 +1,178 @@
+# Test file to figure out how to use tables, stacks, etc
+#
+# GADGET: jsr  (1-level)
+#   R  R  ?
+# ?+5  R  ?            # copy constant retaddr to R(-)
+#   Z  Z  sub_routine  # jump subroutine
+#   ?                  # constant ret_addr
+#   _  _  _            # returns to here
+#
+#
+# GADGET: retsub  (1-level)
+# ?+7 ?+6    ?
+#   R ?+3    ?    #set Q = -R
+#   Z   Z  Q:0    #jmp -R
+
+# One-liner:
+# 27 27 ?  ?+5 27 ?  0 0 sub_routine  ?  #JSR 
+
+
+
+
+#NOTE: all pointers are neg
+#TODO: Snippet for reading from contents of pointer
+#TODO: Snippet for inserting into table
+#TODO: Snippet for walking table from pointer, check each entry to see if it matches
+
+
+# =========  HEADER
+
+@0  # Z T entry       P1  M1  0 0
+     0 0 100   0      1 FFFF 0 0
+@8  # I O A B     _ _ _ _
+      0 0 0 0     0 0 0 0
+@10 # & | ^ _   << >> _ _  (ALU)
+      0 0 0 0   0  0  0 0
+
+# ========  REGISTERS AND CO.
+
+@20 # X Y P Q           R  (REGS)
+      0 0 0 0     0 0 0 0
+
+# leave rooms for vars at 28-2F
+@28 #                    TS  TB          (VARS)
+      00  00  00  00     00 800  00  00
+
+#TS is table_size (num_entries)
+#TB is address of table (+)
+
+# ======== CONSTANTS
+# Mnemonics: 
+#    +/- single digits: 4 is +1, 5 is -1, lets make 4X be +X, 5X be -X
+#    +/- nibs place: like 4 but shifted up to 8
+
+@40 #4_: 0-F
+0 1 2 3 4 5 6 7 8 9 A B C D E F
+
+@50 #5_: negative 0-F
+0000 FFFF FFFE FFFD FFFC FFFB FFFA FFF9 
+FFF8 FFF7 FFF6 FFF5 FFF4 FFF3 FFF2 FFF1
+
+@80 #8_: 0-F
+0 10 20 30 40 50 60 70 80 90 A0 B0 C0 D0 E0 F0
+
+@90 #9_: (-00) - (-F0)
+0000 FFF0 FFE0 FFD0 FFC0 FFB0 FFA0 FF90
+FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
+
+@D0 #error_page
+   0  0 D0    #D0:   halt0 #success
+   1  1 D3    #D3:   halt1 
+   2  2 D6    #D6:   halt2 
+   3  3 D9    #D9:   halt3 
+   4  4 DC    #DC:   halt4
+   5  5 DC    #DF:   halt5
+
+@F0 #retsub:
+?+7 ?+6   ?   # Q Q
+ 27 ?+3   ?   # R Q      # set Q = -R
+  0   0   0   # 0 0 Q:_  # jmp -R
+
+# ======== CODE
+
+@100 #entry:
+   0   0 200  #   : main
+
+
+@200 #main
+# First does table_insert(-7)
+# Then does table_insert(-17)
+# They should end up at addresses (TB, TB+02)
+   0   0   ?  #   : 
+  20  20   ?  #   : X X
+  91  20   ?  #   : $-10 X
+ 27 27 ?  ?+5 27 ?  0 0   300 ?  #JSR table_insert
+  57  20   ?  #   : $-7 X (X = x17)
+ 27 27 ?  ?+5 27 ?  0 0   300 ?  #JSR table_insert
+   0   0  D0  #   : halt0
+   
+
+
+@300 #table-insert:
+# Puts X at next position in table
+# increments TS by 2, then returns
+# TODO: insert X and Y together
+   0   0   ?  #   : 
+  22  22   ?  #   : P P
+  2D  22   ?  #   : TB P
+  2C  22   ?  #   : TS P
+  2C  22   ?  #   : TS P      # P = -(TB + 2*TS)
+                              # now want to put X at *(P-)
+                              
+
+# P(-) now points to next free slot in the table
+# We need to clear and then subtract, two ops, 3 pointers
+# setting each ptr takes 2 ops, so 6 ops to set them
+# + the 2 ops themselves
+# Would be way easier if I didn't need to clear (only 4 ops)
+ ?+11 ?+10 ? # J J            #  *(P-) = -X
+   22 ?+D  ? # P J            #  . 
+  ?+C ?+B  ? # K K            #  . 
+   22 ?+8  ? # P K            #  . 
+  ?+9 ?+8  ? # L L            #  . 
+   22 ?+5  ? # P L            #  . 
+    0   0  ? # J:_ K:_        #  . 
+   20   0  ? #  X  L:_        #  . 
+
+   5  2C   ?  #   : $-1 TS    # Inc TS
+   0   0  F0  #   : jmp retsub
+
+
+
+## TODO: Do something clever to set x and y looping-style
+## TODO: We want a talbe-search operation
+## TODO: Write a MEMCLR(at=X,len=Y) operation
+
+@800 #table
+# Each entry is 2 words long: first word is key, second is value
+
+# ========= NOTES
+
+#Snippets:
+#
+# JLEZ(X,LOC): Z X LOC 
+# JGEZ(X,LOC): T T; X T LOC
+# JGTZ(X,LOC): T T; $-1 T; X T LOC;
+# JLTZ(X,LOC): T T; X T ?+3; Z Z LOC;
+#
+# SUBJGE(X,Y,LOC): X Y LOC;            #Y -= X
+# SUBJLE(X,Y,LOC): T T; X Y; Y T LOC;  #Y -= X
+#
+#
+# JGE(X,Y,LOC): T T; Y Z; Z T; Z Z; X T LOC;
+# JLE: mirror
+#
+# CLR (P)    5 ops
+# *(Pm) = 0:
+#     JJ KK 
+#     PJ PK
+#     J:_ K:_
+#
+# SUB X, (P)   3 ops
+# *(Pm) -= *X:
+#     LL PL
+#     P  L:_
+#
+# MOV X, (P)    8 ops
+# *(Pm) = *X:
+#     JJ KK LL
+#     PJ PK PL
+#     J:_ K:_
+#       X L:_
+#
+# NOTE: 
+#  MEMCLR(base, size) can be implemented with only 4 ops/word
+#  MEMSET(base, size, val) can be implemented with 6 ops/word
+#  MEMCPYNEG(to, from, len) can be implemented with 7 ops/word
+#  MEMCPYPOS(to, from, len) can be implemented with 9 ops/word
+#
