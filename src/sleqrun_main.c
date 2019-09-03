@@ -53,6 +53,9 @@
 
 //struct vm_state defined in shared.h
 
+
+#define LOG_PREFIX "DEBUG-"
+
 struct vm_state global_vm;
 
 #define IN_ADDR  8
@@ -115,7 +118,13 @@ int16_t program_init[] = {
 int16_t get_input() {
     int16_t c = getc(stdin);
 #ifdef DEBUG_LOGGING
-    fprintf(stderr, "Input: '%c', %x\n", c & 0xFF, c);
+    if(c == '\n') {
+        fprintf(stderr, LOG_PREFIX "Input: '\\n', %hx\n", c);
+    } else if(c >= 0x20 && c <= 0x7E ) {
+        fprintf(stderr, LOG_PREFIX "Input: '%c', %hx\n", c & 0xFF, c);
+    } else {
+        fprintf(stderr, LOG_PREFIX "Input: nonprintable, %hx\n", c);
+    }
 #endif
     return c;
 }
@@ -124,10 +133,12 @@ int16_t get_input() {
 void write_output(int16_t c) {
     putc(c & 0xFF, stdout);
 #ifdef DEBUG_LOGGING
-    if(c >= 0x20 && c <= 0x7E) {
-        fprintf(stderr, "Output: '%c', %hx\n", c & 0xFF, c);
+    if(c == '\n') {
+        fprintf(stderr, LOG_PREFIX "Output: '\\n', %hx\n", c);
+    } else if(c >= 0x20 && c <= 0x7E ) {
+        fprintf(stderr, LOG_PREFIX "Output: '%c', %hx\n", c & 0xFF, c);
     } else {
-        fprintf(stderr, "Output: nonprintable, %hx\n", c);
+        fprintf(stderr, LOG_PREFIX "Output: nonprintable, %hx\n", c);
     }
 #endif
 }
@@ -140,7 +151,7 @@ int step(struct vm_state *vm) {
     vm->num_cycles++;
 
 #ifdef DEBUG_LOGGING
-    fprintf(stderr, "DEBUG: at pc x%04hx", vm->pc);
+    fprintf(stderr, LOG_PREFIX "OP: PC=x%04hx", vm->pc);
 
     //optional debug printing
     SHOW_VAR_NEG(X,X_ADDR);
@@ -183,7 +194,7 @@ int step(struct vm_state *vm) {
             default:        A_VAL = 0;
         }
 #ifdef DEBUG_LOGGING
-        fprintf(stderr, "In ALU: result=%4hx\n", A_VAL);
+        fprintf(stderr, LOG_PREFIX "ALU: result=%4hx\n", A_VAL);
 #endif
     }
     //normal
