@@ -62,12 +62,32 @@ new features of the hex2 language.
 - Supports ?+offset, which should make it easy to code indirect access and jumps
 
 
-### hex4: (TODO)
+
+### asm1: (PLAN)
+- two-character labels, backwards only
+- made like "label:", referenced like "label"
+- labels must start with [G-Zg-z] or \_
+- labels can contain [A-Za-z0-9\_]
+
+### asm2: (PLAN)
+- simple labels: going backwards
+- made like "label:", referenced like "label"
+- labels must start with [G-Zg-z] or \_
+- labels can contain [A-Za-z0-9\_]
+
+### Improvements ?? (these should go in one of the versions)
 - Supports '-NUM', e.g. -1, -FF (nice to have and shouldn't be too hard at this point)
 - Support ?-offset
 - +/- literals (for now only support 0-F, 00-F0, 000-F00, and 0000-F000, i.e. one nibble set)
+- String constants ("Hello World")
 
 
+### Misc. TODO
+- Add proper arg handling to sleqrun (--debug flag)
+- Sleqrun let user specify args on command line (or from file?)
+- Sleqrun: optional 2nd and 3rd options for stdin file and stdout file
+- Add some form of debugger to sleqrun (maybe special exit code for debugger + inspector)
+- Alternatively, write up a sleqrun code chunk that I can jump into for simple listing
 
 # Misc. Thoughts
 
