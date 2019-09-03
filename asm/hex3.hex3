@@ -1,0 +1,384 @@
+# Reimplementing to write hex3 in hex3
+#
+# Hex3 Spec:
+# Like hex1, handles hex numbers and '#' comments
+# Like hex2, handles '?' and '@'
+# 
+# Also supports:
+# ?+OFFSET
+
+
+#TODO: rewrite constants section
+
+#niceties for later
+#add initializer to reset entry to halt (catch runaway nops)
+
+
+# =========  HEADER
+
+@0 # Z T entry       P1  M1  0 0
+     0 0  90   0      1 FFFF 0 0
+@8 # I O A B     _ 0xD:halt0
+     0 0 0 0     0 0 0 D
+@10 #ALU
+# & | ^ _   << >> _ _
+  0 0 0 0   0  0  0 0
+  
+@18 #           _ 0x1D: halt1
+      0 0 0 0   0 1 1 1D 
+
+# ========  REGISTERS AND CO.
+
+@20 # X Y Z W           R   (REGS)
+      0 0 0 0     0 0 0 0
+
+@28 # C  N Off             (VARS)
+      0  0  0  0     0  0  0  0 
+
+#C is last char read (-)
+#N is where read_num puts its result (+)
+#Off is current offset in binary (-)
+#R is retval: address to return to
+
+
+
+# ======== CODE
+# C is curr char (negated)
+# N is curr num
+
+#Snippets:
+#
+# JLEZ(X,LOC): Z X LOC 
+# JGEZ(X,LOC): T T; X T LOC
+# JGTZ(X,LOC): T T; $-1 T; X T LOC;
+# JLTZ(X,LOC): T T; X T ?+3; Z Z LOC;
+#
+# SUBJGE(X,Y,LOC): X Y LOC;            #Y -= X
+# SUBJLE(X,Y,LOC): T T; X Y; Y T LOC;  #Y -= X
+#
+#
+# JGE(X,Y,LOC): T T; Y Z; Z T; Z Z; X T LOC;
+# JLE: mirror
+#
+# GADGET: jsr  (1-level)
+#   R  R  ?
+# ?+5  R  ?            # copy constant retaddr to R(-)
+#   Z  Z  sub_routine  # jump subroutine
+#   ?                  # constant ret_addr
+#   _  _  _            # returns to here
+#
+# GADGET: retsub  (1-level)
+# ?+7 ?+6    ?
+#   R ?+3    ?    #set Q = -R
+#   Z   Z  Q:0    #jmp -R
+
+
+
+# keep looping until \n, then go to handle_char
+# Now optimized for common case, if char>'a', runs in 3 steps
+@70 #comment:
+  28   28    ?  #   C   C
+ 12B   28    ?  #   $-B C 
+   8   28   70  #   I   C comment2   #C = $B - getChar(); if C<=0, then char >$a
+ 10B   28    ?  #   $B  C
+  20   20    ?  #   X   X
+  28   20    ?  #   C   X  #X gets +char
+   5   20   D0  #  $-1  X halt0  #if X+1 LEQZ, X<0, EOF so halt
+ 10A   20   70  #  $A   X comment2  #subtract 1 + 9.   If LEQ, X < '\n', loop
+   0    0   96  #   Z   Z handle_char    #X is definitely \n, end comment
+
+
+#These are the comparisons we need to make
+#we'll do repeated "if X <= foo, jump bar"
+#for efficiency, we'll do "X-=foo. if X<=0, jump bar"
+#difference between successive characters are in left column
+
+#diff val char
+# -1 -1 <0  EOF
+# 21 20 ' ' nl
+#  2 22 <#  err
+#  1 23  #  comm
+#  C 2F <0  err
+#  A 39  9  dig
+#  5 3E <?  err
+#  1 3F  ?  put_offset
+#  1 40  @  read_num_seek_ahead
+#  6 46  F  dig
+# 1A 60 <a  err
+#  6 66  f  dig
+
+
+@90 #next_char:
+# fetches next char into C(-)
+# jumps handle_char
+  28 28  ?    #  : C C
+   8 28  ?    #  : I C     #getChar()
+
+#expects neg char in C, uses X
+#jumps where needed
+@96 #handle_char:
+#Needs to test what char C(-1) is
+#First copy it into X(+)
+# if ++X LEQZ, C(-) LTZ, so halt0
+# if X-= $21,  C <= ' ', so jump,
+# and so on with successive differences
+  20 20  ?    #  :  X  X
+  28 20  ?    #  :  C  X
+   4 20 D0    #  : $1  X halt0     #char <0 == EOF
+   5 20  ?    #  : $-1 X 
+ 112 20 90    #  : $20 X next_char #' ' or \n     #TODO: make 0x21 constant
+ 102 20 D3    #  : $2  X halt1     #invalid char
+ 101 20 70    #  : $1  X comment
+ 10C 20 D3    #  : $C  X halt1
+ 10A 20 160   #  : $A  X read_lit_num
+ 105 20 D3    #  : $5  X halt1
+   4 20 300    #  : $1  X put_offset (?)
+   4 20 250   #  : $1  X seek_ahead (@)
+ 106 20 160   #  : $6  X read_lit_num
+ 111 20  ?    #  : $10 X
+ 10A 20 D3    #  : $A  X err
+ 106 20 160   #  : $6  X read_lit_num
+   0  0 D3    #  : Z   Z err
+
+
+@D0 #error_page
+   0  0 D0    #D0:   halt0 #success
+   1  1 D3    #D3:   err: halt1 #unrecognized char
+   2  2 D6    #D6:   err: halt2 # @LOC goes backwards
+   3  3 D9    #D9:   err: halt3 #seek assert err
+
+
+
+
+
+#100 - 110 constants
+@100
+#10_: 0-F
+0 1 2 3 4 5 6 7 8 9 A B C D E F
+#11_: 00-F0 (tens)
+0 10 20 30 40 50 60 70 80 90 A0 B0 C0 D0 E0 F0
+
+#12_: -0 - -F
+0000 FFFF FFFE FFFD FFFC FFFB FFFA FFF9 
+FFF8 FFF7 FFF6 FFF5 FFF4 FFF3 FFF2 FFF1
+
+#13_: (-00) - (-F0)
+0000 FFF0 FFE0 FFD0 FFC0 FFB0 FFA0 FF90
+FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
+
+
+
+#part 2: read_num
+#diff val char
+# 2F 2F <0  fin
+#  A 39  9  num_dig
+#  7 40 <A  fin
+#  6 46  F  num_alpha
+# 1A 60 <a  fin
+#  6 66  f  num_alpha
+#           fin
+#
+
+#CODE
+
+#read_num: expects -char in C, uses X, parses until end of number, prints little-endian word
+#when number ends, if R LEQZ, output number
+#                  if R GTZ, jump to seek_ahead
+#TODO: handle EOF
+
+
+@160 #read_lit_num
+#JSR read_num
+#return to output num
+  27  27   ?   #16 : R   R
+ ?+5  27   ?   #163: ?+5 R
+   0   0 183   #166: Z Z read_num
+ 210           #169: .return to output_num
+
+@183 #read_num:             #doesnt set R, will return through output_num
+  20 20   ?    #   : X X
+  28 20   ?    #   : C X  #X has +char
+ 112 20   ?    #   : $20 X
+ 10F 20 200    #   :  $F X finish    #<0
+ 10A 20 1B3    #   :  $A X num_dig   #0-9
+ 107 20 200    #   :  $7 X finish     <A
+ 106 20 1B0    #   :  $6 X num_alpha  A-F
+ 111 20   ?    #   : $10 X 
+ 10A 20 200    #   :  $A X finish     <a
+ 106 20 1B0    #   :  $6 X num_alpha  a-f
+   0  0 200    #   :   Z Z finish     >f
+
+@1B0 #num_alpha
+ 126 20   ?    #   : $-6 X   #if alpha, value is X + F
+@1B3 #num_dig
+ 129 20   ?    #   : $-9 X   #if digit, value is X + 9
+   0  0 1C0    #   : Z Z shift_up        #now X is +value of number-char
+
+
+
+#N = N<<4 + X, getchar(), jmp read_num
+#TODO: err out on overflow
+@1C0 #shift_up:    
+   A  A   ?    #   : A A
+  29  A   ?    #   : N A
+   B  B   ?    #   : B B
+ 124  B   ?    #   : $-4 B
+  29 29   ?    #   : N N
+  14 29   ?    #   : LS N  #N << 4 (negativeness wouldn't matter if it wasn't overflowing anyway)
+  20  0   ?    #   : X Z
+   0 29   ?    #   : Z N  #N += X
+  28 28   ?    #   : C C
+   8 28   ?    #   : I C  #getChar()
+   0  0 183    #   : Z Z read_num
+
+
+#retsub
+@200  #finish_num:
+ ?+7 ?+6   ?   #200: Q Q
+  27 ?+3   ?   #203: R Q
+   0   0   0   #206: Z Z Q:_
+
+#   we just got a char that's not a num,
+#   print out contents of N, little-endian,
+#   clear N
+#   jump to handle_char (don't get a new one)
+@210  #output_num:
+   A  A   ?     #   : A   A
+  29  0   ?     #   : N   Z
+   0  A   ?     #   : Z   A   
+   0  0   ?     #   : Z   Z  #A=+N
+   B  B   ?     #   : B   B
+ 13F  B   ?     #   : $-F0 B
+ 12F  B   ?     #   : $-F B #B=FF
+  10  0   ?     #   : AND Z                    
+   0  9   ?     #   : Z   O   #putchar(N & FF)
+   0  0   ?     #   : Z   Z
+   B  B   ?     #   : B   B
+ 128  B   ?     #   : $-8 B #B=8
+  15  0   ?     #   : RS  Z
+   0  9   ?     #   : Z   O   #putchar(N >> 8)
+  29 29   ?     #   : N   N   #clear n for next round
+   4 2A   ?     #   : $1 Off   #inc offset
+   0  0  96     #   : Z Z handle_char
+
+
+#Calls getchar to skip '@'
+#JSR read_num
+@250 #seek_ahead:
+  28 28   ?    #250: C C
+   8 28   ?    #263: I C            #getchar(), since curr char is @
+  27 27   ?    #266: R   R
+ 25F 27   ?    #269: retaddr R
+   0  0 183    #26C: Z Z read_num   # JSR (read_num)
+
+
+@25F ?  #.retaddr
+@260 # ===== seek_ahead_got_num:
+#Have target addr in N (+)
+#Outputs 0D until offset == N
+#If (target < offset), halt2  (seeking backwards is a bug)
+#seek_ahead_got_num
+  20 20   ?    #260: X X    
+  2A 20   ?    #263: Off X      # Off is (-)
+  29 20 ?+3    #266: N   X ?+3  # X = Off - N
+   0  0  D6    #269: Z Z halt2       #if Off > N, halt2    (seeking backwards is an err)
+   0  0 289    #26C: Z Z seek_while  #else jump 
+               #                     while do body of loop exactly -X times
+               #                     if X == 0, seek_while does X++, immediate break
+               #                     if X < 0, seek_while enters loop, inc X
+
+@280 #seek_loop: (output a halt 000D) Runs as long as X<0
+ 12D  9   ?    #   : $-D O      
+   0  9   ?    #   : $0  O             #putword(000D)
+   4 2A   ?    #   : $1 Off            #inc offset, (not strictly necessary here)
+@289 #seek_while:
+   5 20 280    #   : $-1 X seek_loop   #loop while ++X LEQZ, or while X++ LTZ
+
+   0  0 290    #   :  Z  Z seek_end
+@290 #seek_end:                   assert that Off(-) == N, else halt3
+     #                            Clear N, jmp handle_char (since coming from read_num)
+   3  3   ?    #   : T T               
+  2A  3   ?    #   : Off T
+  29  3 ?+3    #   : N T ?+3    # T must be <=0
+   0  0  D9    #   : Z Z halt3  # else
+   3  0 ?+3    #   : T Z ?+3    # T must be >=0
+   0  0  D9    #   : Z Z halt3  
+   0  0   ?    #   : Z Z                              
+  29 29  96    #   : N N handle_char
+
+#plan: take X=Off-N, need to output (-X words)
+#X+=1 (need to output -X + 1 words)
+#while X LEZ: (will run -X + 1 times)
+#  putchar putchar
+#  X++
+
+
+
+
+# ================================================
+#                PUT_OFFSET
+# handles '?'
+# ? on its own puts address of next byte
+# '?+NUM' puts next byte + NUM
+@300 #put_offset: 
+  29  29   ?   #   : N N
+  28  28   ?   #   : C C
+   8  28   ?   #   : I C #getchar (after ?)
+
+#test if next char == "+"
+  20  20   ?   #   : X X
+  28  20   ?   #   : C X  #X = +char (-C)
+ 112  20   ?   #   : $20 X      
+ 10A  20 360   #   : $A X put_offset_finish   #X <=2A
+   4  20 330   #   : $1 X put_offset_plus     #X <=2B
+   0   0 360   #   : Z Z  put_offset_finish   #X  >2B
+
+
+
+
+@330 #put_offset_plus: 
+# we got a plus: drop the char, then jump read_num
+  28  28   ?   #330: C C
+   8  28   ?   # 33: I C #getchar (after ?)
+
+  27  27   ?   # 36: R     R   
+ ?+5  27   ?   # 39: ?+5   R   
+   0   0 183   # 3C: Z     Z  read_num # jsr read_num
+ 360           #33F: retaddr: goto put_offset_finish
+
+
+@360 #put_offset_finish:
+#Now N is the offset, C is next char to be read
+#Ouput offset+N, jump output_num (returns to handle_char)
+   0   0   ?   #   : 
+  2A  29   ?   #   : Off N  #N = +offset (-O)
+  28  28   ?   #   : C C
+   8  28   ?   #   : I C  #getchar()  (since output_num jumps to handle_num)
+   5  29   ?   #   : $-1 N  #N = offset+1
+   0   0 210   #   : Z Z output_num
+
+# ============ ETC
+# ALU-less shift and add
+#shift_and_add: N = N<<4 + X
+# T T
+# N Z
+# N Z
+# Z T
+# Z T
+# Z Z #T=4*N
+# N N
+# T Z
+# T Z
+# Z N
+# Z N
+# Z Z # N = 16 * oldn
+
+# X Z     N+= X
+# Z N
+# Z Z
+
+
+   0   0   ?   #FFFF 
+FFFF FFF FFF   #
+
+

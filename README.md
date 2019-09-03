@@ -58,7 +58,7 @@ new features of the hex2 language.
 - Different exit codes: 0 for succ, 1 for bad char, 2 for seek backwards
 
 
-### hex3: (WIP)
+### hex3:
 - Supports ?+offset, which should make it easy to code indirect access and jumps
 
 

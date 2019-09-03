@@ -1,0 +1,43 @@
+#Hello world program
+#Reimplenting in hex3 for testing
+#
+#Copies bytes from 0x40 until it hits a null,
+#text string is stored as 0041, 0020, etc
+#prints to stdout
+#can compile it with `grep <test.hex1 -v '#' | interp hex1 >test.bin`
+
+#Z, 0, entry Z2     #P1, M1, 0, 0
+ 0  0  30    0       1 FFFF  0  0
+
+#0x8: I O A B     0  0xD:halt
+      0 0 0 0     0  0 0 D
+
+
+# 0x10: ALU
+# & | ^ _   << >> _ _
+  0 0 0 0   0  0  0 0
+  
+# 0x18: vars
+#  p v                p=0xFF00=-0x100
+FF00 0 0 0   0 0 0 0
+
+
+@30 #loop:
+ 19  19  ?  #  V   V
+?+5 ?+4  ?  #  X   X 
+ 18 ?+1  ?  #  P   X
+  0  19  ?  #  X:_ V    # V = -*(-P)
+ 19  0  D  #  V   Z halt  #if '\0', halt
+  0  0  ?  #  Z   Z
+ 19  9  ?  #  V   O
+  4 18 30  #  P1  P loop
+
+
+
+@100
+# "Hello World\n\0"
+48 65 6C 6C    6F 20 57 6F    72 6C 64 0A  0 0 0 0
+
+#0x50
+
+
