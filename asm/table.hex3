@@ -1,20 +1,5 @@
 # Test file to figure out how to use tables, stacks, etc
 #
-# GADGET: jsr  (1-level)
-#   R  R  ?
-# ?+5  R  ?            # copy constant retaddr to R(-)
-#   Z  Z  sub_routine  # jump subroutine
-#   ?                  # constant ret_addr
-#   _  _  _            # returns to here
-#
-#
-# GADGET: retsub  (1-level)
-# ?+7 ?+6    ?
-#   R ?+3    ?    #set Q = -R
-#   Z   Z  Q:0    #jmp -R
-
-# One-liner:
-# 27 27 ?  ?+5 27 ?  0 0 sub_routine  ?  #JSR 
 
 
 
@@ -85,31 +70,91 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 @200 #main
-# First does table_insert(-7)
-# Then does table_insert(-17)
+# First does table_insert(3,59) 'Y'
+# First does table_insert(1,48) 'H'
+# First does table_insert(2,45) 'E'
 # They should end up at addresses (TB, TB+02)
    0   0   ?  #   : 
   20  20   ?  #   : X X
-  91  20   ?  #   : $-10 X
+   0  20   ?  #   : $-00 X
+  53  20   ?  #   : $-3 X
+  21  21   ?  #   : Y Y
+  95  21   ?  #   : $-50 Y
+  59  21   ?  #   : $-9 Y
  27 27 ?  ?+5 27 ?  0 0   300 ?  #JSR table_insert
-  57  20   ?  #   : $-7 X (X = x17)
+ #insert_neg(3,x59)
+ 
+
+  20  20   ?  #   : X X
+   0  20   ?  #   : $-00 X
+  51  20   ?  #   : $-1 X
+  21  21   ?  #   : Y Y
+  94  21   ?  #   : $-40 Y
+  58  21   ?  #   : $-8 Y
  27 27 ?  ?+5 27 ?  0 0   300 ?  #JSR table_insert
-   0   0  D0  #   : halt0
+ #insert_neg(1,x48)
+ #
+  20  20   ?  #   : X X
+   0  20   ?  #   : $-00 X
+  52  20   ?  #   : $-2 X
+  21  21   ?  #   : Y Y
+  94  21   ?  #   : $-40 Y
+  55  21   ?  #   : $-5 Y
+ 27 27 ?  ?+5 27 ?  0 0   300 ?  #JSR table_insert
+ #insert_neg(2,x45)
+
+
+#now fetch 3 vals in order
+  20  20   ?  #   : X X       # 
+  51  20   ?  #   : $-1 X     # 
+ 27 27 ?  ?+5 27 ?  0 0   500 ?  #JSR table_search
+ #search(1)
+  20   0   ?  #   : X Z       # 
+   0   9   ?  #   : Z O       # output char (neg)
+
+
+  20  20   ?  #   : X X       # 
+  52  20   ?  #   : $-2 X     # 
+ 27 27 ?  ?+5 27 ?  0 0   500 ?  #JSR table_search
+ #search(2)
+  20   0   ?  #   : X Z       # 
+   0   9   ?  #   : Z O       # output char (neg)
+
+
+  20  20   ?  #   : X X       # 
+  53  20   ?  #   : $-3 X     # 
+ 27 27 ?  ?+5 27 ?  0 0   500 ?  #JSR table_search
+ #search(3)
+  20   0   ?  #   : X Z       # 
+   0   9   ?  #   : Z O       # output char (neg)
+
+
+
+# make sure that not-found values signal correctly
+  20  20   ?  #   : X X       # 
+  54  20   ?  #   : $-4 X     # 
+ 27 27 ?  ?+5 27 ?  0 0   500 ?  #JSR table_search
+ #search(4) this should fail, returning Y=0 (not found)
+   0  21  D0  #   : Z Y halt0 #  IF Y == 0, we're good, halt0
+   0   0  D9  #   : halt3     #  Else: rip it should have been 0, halt3
    
 
+   0   0   ?  #   :           # 
 
+
+
+#=============================================
 @300 #table-insert:
-# Puts X at next position in table
+
+# Puts X and Y at next position in table (neg)
 # increments TS by 2, then returns
-# TODO: insert X and Y together
-   0   0   ?  #   : 
+   0   0   ?  #   :           #
   22  22   ?  #   : P P
   2D  22   ?  #   : TB P
   2C  22   ?  #   : TS P
   2C  22   ?  #   : TS P      # P = -(TB + 2*TS)
                               # now want to put X at *(P-)
                               
-
 # P(-) now points to next free slot in the table
 # We need to clear and then subtract, two ops, 3 pointers
 # setting each ptr takes 2 ops, so 6 ops to set them
@@ -124,14 +169,108 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
     0   0  ? # J:_ K:_        #  . 
    20   0  ? #  X  L:_        #  . 
 
+
+#Now Y goes in the next table slot
+    4  22  ? # $1 P 
+ ?+11 ?+10 ? # J J            #  *(P-) = -Y
+   22 ?+D  ? # P J            #  . 
+  ?+C ?+B  ? # K K            #  . 
+   22 ?+8  ? # P K            #  . 
+  ?+9 ?+8  ? # L L            #  . 
+   22 ?+5  ? # P L            #  . 
+    0   0  ? # J:_ K:_        #  . 
+   21   0  ? #  Y  L:_        #  . 
+
+#Done, inc number of entries
    5  2C   ?  #   : $-1 TS    # Inc TS
    0   0  F0  #   : jmp retsub
+
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+
+
+
+
+#=============================================
+@500 #table-search:
+
+# Searches for key "X" in table 
+# Returns associated value in X
+# Y holds 0 if err, 1 iff success
+# uses xypq
+#
+#
+  23  23   ?  #   : Q Q       # 
+  2C  23   ?  #   : TS Q      # Q = -TableSize
+  22  22   ?  #   : P P       # 
+  2D  22   ?  #   : TB P      # P = - TBase
+   0   0 540  #   : z z looptest (jump into test)
+
+# we only want to loop as many times as table_size,
+# then fall through to "not found"
+#each time P-=2
+#If *(P-) == X, found
+# Loop invariants: when entering at top: will do body (-Q) + 1 times
+# Loop invariants: when entering at looptest: will do body (-Q) times
+# P(-) points to current critter to test
+# X is target value
+# Q is counter == neg length of table
+
+@520
+# table_search_loop  :
+   0   0   ?  #   :           # 
+  21  21   ?  #   : Y Y       # Fetch value
+ ?+5 ?+4   ?  #   : Q Q       # 
+  22 ?+1   ?  #   : P Q       # 
+   0  21   ?  #   : Q:_ Y     # Y = -*(-P)
+
+
+                              # Compare X to key in table
+                              # NOTE: table contents are (-)
+  20  21 ?+3  #   : X Y ?+3   # Y -= 0: if >0,false
+   0   0 ?+3  #   : Z Z next  # 
+  21   0 580  #   : Y Z tsrch_found   # if -Y <= 0, true    (Y <=0 && -Y <=0)
+
+                              # if !=, continue
+  42  22   ?  #   : $2 P      # P -= 2
+   0   0 540  #   :  Z Z looptest       
+
+
+@540 #looptest:
+   5  23 520  #   : $-1 Q loop # Q++, JLEQZ loop
+
+#tsearch_notfound:
+                              # Finished table, didn't find val
+  21  21   ?  #   : Y Y       # Y = 0 (not found)
+  20  20  F0  #   : X X       # X = 0 (null), retsub
+
+@580
+#tsearch_found:
+                              # P(-) is at matching key
+   4  22   ?  #   : $1 P      # P--
+
+  20  20   ?  #   : X X       # fetch P (val)
+ ?+5 ?+4   ?  #   : Q Q       # 
+  22 ?+1   ?  #   : P Q       # 
+   0  20   ?  #   : Q:_ X     # X = -*(-P)
+
+  21  21   ?  #   : Y Y       # 
+   5  21   ?  #   : $-1 Y     # Y = 1 (success)
+   0   0  F0  #   : jmp retsub# return
+
+
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+
+
+
 
 
 
 ## TODO: Do something clever to set x and y looping-style
-## TODO: We want a talbe-search operation
 ## TODO: Write a MEMCLR(at=X,len=Y) operation
+## TODO: Write intern-string method?
 
 @800 #table
 # Each entry is 2 words long: first word is key, second is value
@@ -176,3 +315,36 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #  MEMCPYNEG(to, from, len) can be implemented with 7 ops/word
 #  MEMCPYPOS(to, from, len) can be implemented with 9 ops/word
 #
+#
+# GADGET: jsr  (1-level)
+#   R  R  ?
+# ?+5  R  ?            # copy constant retaddr to R(-)
+#   Z  Z  sub_routine  # jump subroutine
+#   ?                  # constant ret_addr
+#   _  _  _            # returns to here
+#
+# GADGET: JSR one-liner
+#   27 27 ?  ?+5 27 ?  0 0 sub_routine  ?  #JSR 
+#
+# GADGET: retsub  (1-level)
+# ?+7 ?+6    ?
+#   R ?+3    ?    #set Q = -R
+#   Z   Z  Q:0    #jmp -R
+#
+#
+#
+# GADGET: FETCH_SUBTRACT: *(-P) X
+#  ?+5 ?+4  ?  #  Q   Q 
+#    P ?+1  ?  #  P   Q
+#    _   X  ?  #  Q:_ X    # X -= *(-P)
+#
+#
+# GADGET: POKE: *(P-) = -X
+# ?+11 ?+10 ? # J J            #  *(P-) = -X
+#   22 ?+D  ? # P J            #  . 
+#  ?+C ?+B  ? # K K            #  . 
+#   22 ?+8  ? # P K            #  . 
+#  ?+9 ?+8  ? # L L            #  . 
+#   22 ?+5  ? # P L            #  . 
+#    0   0  ? # J:_ K:_        #  . 
+#   20   0  ? #  X  L:_        #  . 
