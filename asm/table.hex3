@@ -1,6 +1,19 @@
 # Test file to figure out how to use tables, stacks, etc
 #
+# Implements linear scan key-value table (on words)
+#  insert(x,y), search(x)
 
+# strtab for interned strings
+# intern() interns the string in the buffer
+# if already interned, returns ptr
+# else memcpys and returns ptr
+
+
+# test program:
+# shell
+# if "string:\n", stores a value if new
+# if "string\n", prints its value
+# if err, does halt2
 
 
 
@@ -13,7 +26,7 @@
 # =========  HEADER
 
 @0  # Z T entry       P1  M1  0 0
-     0 0 100   0      1 FFFF 0 0
+     0 0 1200   0      1 FFFF 0 0
 @8  # I O A B     _ _ _ _
       0 0 0 0     0 0 0 0
 @10 # & | ^ _   << >> _ _  (ALU)
@@ -21,15 +34,25 @@
 
 # ========  REGISTERS AND CO.
 
-@20 # X Y P Q           R  (REGS)
-      0 0 0 0     0 0 0 0
+@20 # X Y P Q         R2 R  (REGS)
+      0 0 0 0     0 0 0  0
 
 # leave rooms for vars at 28-2F
-@28 #                    TS  TB          (VARS)
-      00  00  00  00     00 800  00  00
+@28 # X2  Y2   L                         (VARS)
+      00  00  00  00     00  00  00  00
 
 #TS is table_size (num_entries)
 #TB is address of table (+)
+
+
+@30    0 #Table size
+@31  A00 #Table Base
+
+# _
+@33  B00 #Strtab Base
+   
+#_ 
+@35  C00 #Buffer Base
 
 # ======== CONSTANTS
 # Mnemonics: 
@@ -63,13 +86,12 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
  27 ?+3   ?   # R Q      # set Q = -R
   0   0   0   # 0 0 Q:_  # jmp -R
 
+
 # ======== CODE
 
-@100 #entry:
-   0   0 200  #   : main
 
 
-@200 #main
+@200 #main: tests table_insert
 # First does table_insert(3,59) 'Y'
 # First does table_insert(1,48) 'H'
 # First does table_insert(2,45) 'E'
@@ -150,9 +172,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 # increments TS by 2, then returns
    0   0   ?  #   :           #
   22  22   ?  #   : P P
-  2D  22   ?  #   : TB P
-  2C  22   ?  #   : TS P
-  2C  22   ?  #   : TS P      # P = -(TB + 2*TS)
+  31  22   ?  #   : TB P
+  30  22   ?  #   : TS P
+  30  22   ?  #   : TS P      # P = -(TB + 2*TS)
                               # now want to put X at *(P-)
                               
 # P(-) now points to next free slot in the table
@@ -182,7 +204,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    21   0  ? #  Y  L:_        #  . 
 
 #Done, inc number of entries
-   5  2C   ?  #   : $-1 TS    # Inc TS
+   5  30   ?  #   : $-1 TS    # Inc TS
    0   0  F0  #   : jmp retsub
 
    0   0   ?  #   :           # 
@@ -202,9 +224,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #
 #
   23  23   ?  #   : Q Q       # 
-  2C  23   ?  #   : TS Q      # Q = -TableSize
+  30  23   ?  #   : TS Q      # Q = -TableSize
   22  22   ?  #   : P P       # 
-  2D  22   ?  #   : TB P      # P = - TBase
+  31  22   ?  #   : TB P      # P = - TBase
    0   0 540  #   : z z looptest (jump into test)
 
 # we only want to loop as many times as table_size,
@@ -268,13 +290,284 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 
+
+# =======================================
+@600 # intern_string:
+# Interns string in buff
+# Returns ptr to it in X(-)
+
+# Needs len,string in Buff
+# if exists, returns existing ptr, else adds new ptr
+
+# Alg
+#walk table, strcmp each str with buff
+#if get to end, not found, so strcpy to end of buff
+#P for pointing to curr entry in strtab
+#Pointers within strcmp stored in code
+
+# P points to start of table
+  22  22   ?  #   : P P       # 
+  33  22   ?  #   :strtab P   # P = &strings
+   0   0 620  #   :jmp loop   # 
+   0   0   ?  #   :           # 
+
+# test string in buff
+# buff[0] is L, len of buff str
+# P points to curr strtab entry
+@620 # strtab_walk_loop:
+                              # X gets len of curr str in strtab
+                              # Y (tmp) also gets len
+  20  20   ?  #   : X X       # 
+ ?+5 ?+4   ?  #   : Q   Q     #
+  22 ?+1   ?  #   : P   Q     #
+   0  20   ?  #   : Q:_ X     # X = -*(-P)   (len)
+  21  21   ?  #   : Y Y       # 
+  20  21   ?  #   : X Y       # Y = len(-)
+
+#test if strlen == 0 (end of table)
+   0  20 ?+3  #   : Z X ?+3   # 
+   0   0 ?+6  #   : jmp ?+6   # (if X>0, skip rest of test)
+   1   1   ?  #   : T T       # 
+  20   1 700  #   : X T not_found  (if X == 0, eot, jmp strtab_not_found)
+                              # else:   
+                              #
+#test if strlen == L (lengths match, do strcmp)
+                              #   test Y(-) =? L(-)
+                              #   L = Buff[0]
+ C00  21 ?+3  #   : L Y ?+3   # Y = X - L, test Y==0
+   0   0 ?+3  #   : jmp  ?+3  # 
+  21   0 680  #   : Y Z strcmp# if Y == 0   (means Y==L), go to compare strings
+                              # else:
+   0   0 650  #   : Z Z next  # 
+                              
+@650 #strtab_next: (else: strings not matched, walk to next string)
+                              # P <= P + *(P) + 1  (skip len, skip str)
+   4  22   ?  #   :$1 P       # P--
+  20  22   ?  #   : X P       # P(-), so want P -= len(+) 
+
+   0   0 620  #   : jmp strtab_walk_loop
+   0   0   ?  #   :           # 
+
+
+# X holds len(+)
+# P pts to curr str 
+@680 #strcmp
+                              # #lengths match, do strcmp
+ 6B8 6B8   ?  #   : cP1 cP1   # 
+  22 6B8   ?  #   :   P cP1   # cmpP1 = (P)  (will skip len field)
+ 6BB 6BB   ?  #   : cP2 cP2   # 
+   1   1   ?  #   : T T       # 
+  35   1   ?  #   : buf T     # 
+   1 6BB   ?  #   :   T cP2   # cmpP2 = (&buff) (will skip len field)
+  21  21   ?  #   : Y Y       # 
+  20  21   ?  #   : X Y       # Y = len(-)
+   5  21 6A0  #   :$-1 Y      # Y++ (loop 1 time less)
+
+#loop -Y+1 times 
+#X holds len(+) (needed for strtab_next)
+#Q tmp
+#str pointers in code
+@6A0 # strcmp_loop: (str length in Y)
+   5 6B8   ?  #   :$-1 cP1    # 
+   5 6BB   ?  #   :$-1 cP2    # advance ptrs (in code, so inc)
+
+   0   0   ?  #   : Z Z       #  
+#fetch next char of each string
+  23  23 6B8  #   : Q Q fetch #  
+@6B8 #strcmp_loop_fetch
+   0  23   ?  #   : cP1:_ Q   #  
+@6BB #strcmp_loop_fetch2
+   0   0   ?  #   : cP2:_ Z   #  
+                              #  Q = *(P1) - *(P2)
+   0  23 ?+3  #   : Z Q ?+3   #  #test match
+   0   0 650  #   : jmp ?+6   #  
+  23   0 ?+3  #   : Q Z ?+3   # if Q==0 continue strcmp
+   0   0 650  #   : jmp next  # else go to next string
+
+   0   0 6D0  #   : Z Z looptest #(continue loop)
+
+# chars matched:
+@6D0 #strcmp_loop_test (do L2 times)
+   5  21 6A0  #   :$-1 Y loop #  Y++, if Y<=0, jump strcmp_loop
+   0   0   ?  #   :           # 
+
+#  finished loop without failed match: found the string
+  20  20   ?  #   : X X       #  return ptr in X(-) (pointer to found str)
+  22   0   ?  #   : P Z       #  
+   0  20   ?  #   : Z X       # 
+   0   0  F0  #   : jmp retsub#
+   0   0   ?  #   :           # 
+
+
+
+# P holds ptr
+@700 # strtab_not_found:
+# memcpy in new string, return pointer to it
+  20  20   ?  #   : X X       #    # memcpy strbuf to end of strtab
+  22  20   ?  #   : P X       #    X(+) = P(-)  #to eot
+  21  21   ?  #   : Y Y       # 
+  35   0   ?  #   :&Buf Z     #    
+   0  21   ?  #   : Z Y       #    Y(+) = buff(+)  #from buff
+              #   (Z will be clred at jsr)
+
+  23  23   ?  #   : Q Q       #    
+   1   1   ?  #   : T T       # 
+  35   1   ?  #   :Buff T     # 
+ ?+5 ?+4   ?  #   : .   .     #
+   1 ?+1   ?  #   : T   .     #
+   0  23   ?  #   : .:_ Q     #    Q = -*(Buff+)
+   5  23   ?  #   :$-1 Q      #    Q(+) = Buff[0](-) + 1
+
+
+760 760 ?   27 760 ?  #stash R  
+761 761 ?   22 761 ?  #stash P (ptr to eot)
+
+#memcpy(eot+, buff+, buff[0]+)
+   27 27 ?  ?+5 27 ?  0 0 800  ?  #JSR memcpy
+
+#return ptr(-) in X
+  20  20   ?  #   : X X       # 
+ 761  20   ?  #   :ptr X      # 
+  27  27   ?  #   : R R       # 
+ 760  27   ?  #   :stsh R     # 
+   0   0  F0  #   : retsub
+
+@760 0 #stash R
+@761 0 #stash ptr
+
+
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+
+# ================================================
+# memcpy
+
+@800 #memcpy 
+# X is dst(+)
+# Y is src(+)
+# Q is count(+)
+# we'll use P as dstP(-)
+# we'll use X as srcP(-)
+# we'll use Y as tmp
+# Q will be -cnt
+   1   1   ?  #   : T T       # 
+  23   1   ?  #   : Q T       # 
+   1   0   ?  #   : T Z       #  
+  23  23   ?  #   : Q Q       # 
+   0  23   ?  #   : Z Q       # 
+   0   0   ?  #   : Z Z       #  Q = -Q
+  22  22   ?  #   : P P       # 
+  20  22   ?  #   : X P       #  P = -X (which is -dstp)
+  20  20   ?  #   : X X       # 
+  21  20   ?  #   : Y X       #  X = -Y (which is srcp)
+
+  21  21 880  #   : Y Y lptest# jmp to loop_test to loop -Q times
+
+#loop inv: Y is clr
+@840 #memcpy_loop: when here: do loop (-Q) + 1 times
+
+ ?+5 ?+4   ?  #   : Q   Q     #  fetch- srcp to y
+  20 ?+1   ?  #   : X   Q     #  .
+   0  21   ?  #   : Q:_ Y     #  Y = -*(X-)   
+
+ ?+11 ?+10 ?  # J J           #  str- y to dstp
+   22 ?+D  ?  # P J           #  . 
+  ?+C ?+B  ?  # K K           #  . 
+   22 ?+8  ?  # P K           #  . 
+  ?+9 ?+8  ?  # L L           #  . 
+   22 ?+5  ?  # P L           #  . 
+    0   0  ?  # J:_ K:_       #  . 
+   21   0  ?  #  Y  L:_       #  *(P-) = -Y 
+
+
+   4  20   ?  #   : $1 X      #  #inc ptrs (actually dec)
+   4  22   ?  #   : $1 P      # 
+
+  21  21 880  #   : Y  Y looptest
+
+@880 #memcpy_loop_test:
+   5  23 840  #   :$-1 Q loop #  Q++, if Q<=0, loop
+
+
+#finished copying, jump retsub
+   0   0  F0  #   : Z Z retsub
+
+
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+
+
 ## TODO: Do something clever to set x and y looping-style
 ## TODO: Write a MEMCLR(at=X,len=Y) operation
 ## TODO: Write intern-string method?
+#
 
-@800 #table
+# ==========================================
+# TABLES
+
+@A00 #table
 # Each entry is 2 words long: first word is key, second is value
 
+
+@B00 #strings?
+# Each string is (len,data)
+# len 0 means youve hit the end
+FFFB 48 65 6C 6C 6F  #-5:"Hello"
+FFFE 41 42 #-2:"AB"
+0
+
+
+
+@C00 #tmpbuff (note: strings should all be negative, but len most import)
+#premade strings:
+FFFE 41 43 #-2:"AC" 
+#FFFB 48 65 6C 6C 6F  #-5:"Hello"
+0
+
+
+
+
+
+
+#=======================================
+# TEST FUNCTIONS
+
+#constants
+@1000 B00 #table
+@1001 C00 #strtab
+
+@1100 #testmcpy
+  33   0   ?  #   :strtabBase Z
+   0  20   ?  #   : Z X       # 
+   0   0   ?  #   : Z Z       # X = +strtab
+
+  35   0   ?  #   :buffBase Z
+   0  21   ?  #   : Z Y       # 
+   0   0   ?  #   : Z Z       # Y = +srcstr
+
+  55  23   ?  #   :$-5 Q      # Q = +5
+
+  27 27 ?  ?+5 27 ?  0 0 800  ?  #JSR memcpy
+#memcpy(strtab, tmpbuff, 5)
+#       dst@X,  src@Y, n@Q
+
+   0   0  D0  #   :halt0      # 
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+
+
+@1200 #test intern_str with premade strings in buff
+  27 27 ?  ?+5 27 ?  0 0 600  ?  #JSR intern_str
+#ptr in X(-)
+   0   0  D3  #   : halt1     # 
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+   0   0   ?  #   :           # 
+
+
+
+    
 # ========= NOTES
 
 #Snippets:
@@ -309,6 +602,23 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #     J:_ K:_
 #       X L:_
 #
+#
+#
+# MOV (Ps), (Pd)    12 ops
+# *(Pd) = *(Ps);
+#
+#     X X
+#     II  PsI
+#     I:_   X    #fetch(-) to x
+#
+#     JJ KK LL  #str x (Pd)
+#     PdJ PdK PdL
+#     J:_ K:_
+#       Z L:_    #str X(-)    (double flip means same parity)
+#
+#
+#
+#
 # NOTE: 
 #  MEMCLR(base, size) can be implemented with only 4 ops/word
 #  MEMSET(base, size, val) can be implemented with 6 ops/word
@@ -326,17 +636,24 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 # GADGET: JSR one-liner
 #   27 27 ?  ?+5 27 ?  0 0 sub_routine  ?  #JSR 
 #
+# GADGET: JSR2 one-liner  (doesn't clobber JSR)
+#   26 26 ?  ?+5 26 ?  0 0 sub_routine  ?  #JSR2 
+#
 # GADGET: retsub  (1-level)
 # ?+7 ?+6    ?
 #   R ?+3    ?    #set Q = -R
 #   Z   Z  Q:0    #jmp -R
 #
+# GADGET: retsub2  (1-level) (parallel to retsub)
+# ?+7 ?+6    ?
+#  R2 ?+3    ?    #set Q = -R
+#   Z   Z  Q:0    #jmp -R
 #
 #
 # GADGET: FETCH_SUBTRACT: *(-P) X
-#  ?+5 ?+4  ?  #  Q   Q 
-#    P ?+1  ?  #  P   Q
-#    _   X  ?  #  Q:_ X    # X -= *(-P)
+# ?+5 ?+4   ?  #   : Q   Q     #
+#   P ?+1   ?  #   : P   Q     #
+#   _   X   ?  #   : Q:_ X     # X -= *(-P)
 #
 #
 # GADGET: POKE: *(P-) = -X

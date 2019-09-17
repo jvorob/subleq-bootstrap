@@ -147,6 +147,7 @@ void write_output(int16_t c) {
 
 #define SHOW_VAR(name,loc) fprintf(stderr, ", " #name "=%04hx", vm->mem[loc]);
 #define SHOW_VAR_NEG(name,loc) fprintf(stderr, ", " #name "=%04hx (-%04hx)", vm->mem[loc], -vm->mem[loc]);
+#define SHOW_VAR_SGN(name,loc) fprintf(stderr, ", " #name "=%c%04hx", vm->mem[loc]>0?'+':'-',vm->mem[loc]*(vm->mem[loc]>0?1:-1));
 
 //Runs one step, returns 0 normally, 1 if halt
 int step(struct vm_state *vm) {
@@ -159,11 +160,13 @@ int step(struct vm_state *vm) {
         SHOW_VAR_NEG(X,X_ADDR);
         SHOW_VAR_NEG(Y,Y_ADDR);
 
-        SHOW_VAR(A,ALU_A);
-        SHOW_VAR(B,ALU_B);
-        SHOW_VAR_NEG(TCnt,0x2C);
-        SHOW_VAR_NEG(TAB,0x800);
-        SHOW_VAR_NEG(TB2,0x802);
+        //SHOW_VAR(A,ALU_A);
+        //SHOW_VAR(B,ALU_B);
+        SHOW_VAR_SGN(P,0x22);
+        SHOW_VAR_SGN(Q,0x23);
+        //SHOW_VAR_NEG(TCnt,0x2C);
+        //SHOW_VAR_NEG(TAB,0x800);
+        //SHOW_VAR_NEG(TB2,0x802);
         //SHOW_VAR(Z,0x0);
         //SHOW_VAR(T,0x3);
         SHOW_VAR_NEG(R,0x27);
