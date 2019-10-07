@@ -80,6 +80,8 @@ new features of the hex2 language.
 - Support ?-offset
 - +/- literals (for now only support 0-F, 00-F0, 000-F00, and 0000-F000, i.e. one nibble set)
 - String constants ("Hello World")
+- Rewrite the assemblers to not use the ALU 
+  (need to implement shift-up and extract-bytes for output)
 
 
 ### Misc. TODO

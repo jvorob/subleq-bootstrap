@@ -51,6 +51,7 @@
 
 // =============== GLOBALS
 bool glb_DEBUGGING_ENABLED = FALSE;
+bool glb_QUAD_ALIGNED = FALSE;  // if true, ops are 4 words at a time and must be 4-word aligned
 struct vm_state global_vm;
 
 // =============== CONSTANTS
@@ -176,6 +177,14 @@ int step(struct vm_state *vm) {
         fprintf(stderr, "\n");
     }
 
+
+    // error out if trying to execute not quad-aligned op
+    // TODO: maybe just round down instead?
+    if(glb_QUAD_ALIGNED && ((vm->pc % 4) != 0)) {
+        fprintf(stderr, "ERROR: trying to execute unaligned instruction at 0x%04hx in quad-aligned mode\n", vm->pc);
+        return 1;
+    }
+
     //NOTE: A and B are addresses, should be unsigned
     uint16_t A =    vm->mem[vm->pc];
     uint16_t B =    vm->mem[vm->pc+1];
@@ -234,7 +243,8 @@ int step(struct vm_state *vm) {
 
         vm->pc = NEXT;
     } else {
-        vm->pc += 3;
+
+        vm->pc += glb_QUAD_ALIGNED? 4: 3;
     }
 
     return 0;
@@ -307,7 +317,7 @@ void run_default_program() {
     printf("Initializing...\n");
     init_vm(&global_vm);
     load_test_program(&global_vm);
-    printf("Running :\n=======\n");
+    printf("Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
     int retval = run(&global_vm);
     printf("=======\nExited with code %d\n", retval);
 }
@@ -330,7 +340,7 @@ int run_binary(char *fname) {
     fprintf(stderr, "Loading binary from %s\n", fname);
     init_vm(&global_vm);
     load_binary_file(&global_vm, binfile);
-    fprintf(stderr, "Running :\n=======\n");
+    printf("Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
     int retval = run(&global_vm);
     fprintf(stderr, "=======\nHalted with code %d after %ld steps\n", retval, global_vm.num_cycles);
     return(retval);
@@ -341,8 +351,11 @@ void print_usage() {
     fprintf(stderr, "Usage: \n");
     fprintf(stderr, "      sleqrun -      # read binary from stdin until EOF, then run it\n");
     fprintf(stderr, "      sleqrun FILE   # read binary from file, run it\n");
-    fprintf(stderr, "    Options:\n");
-    fprintf(stderr, "      --debug: enables debugging output\n");
+    fprintf(stderr, "   Options:\n");
+    fprintf(stderr, "      --debug        # enables debugging output\n");
+    fprintf(stderr, "      --4aligned     # instructions must be 4-word aligned, 4th is ignored\n");
+    fprintf(stderr, "      --unaligned    # instructions are any 3 consecutive dwords\n");
+    fprintf(stderr, "                     # (default is unaligned)\n");
 }
 
 
@@ -368,6 +381,10 @@ int main(int argc, char *argv[]) {
 
             if(0 == strcmp(curr_arg, "--debug")) {
                 glb_DEBUGGING_ENABLED = TRUE;
+            } else if(0 == strcmp(curr_arg, "--4aligned")) {
+                glb_QUAD_ALIGNED = TRUE;
+            } else if(0 == strcmp(curr_arg, "--unaligned")) {
+                glb_QUAD_ALIGNED = FALSE;
             } else {
                 fprintf(stderr, "ERROR: Unknown option '%s'\n", curr_arg);
                 print_usage();
