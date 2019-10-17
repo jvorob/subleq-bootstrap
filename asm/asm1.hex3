@@ -13,8 +13,8 @@
 
 
 ## TODO Checklist
-# - First: change the constants section to be better
-# - Move subroutines around to leave more space, reorder for eventual labels
+# - Move subroutines around to leave more space (done?)
+# - change the constants section to be better
 # - Rethink register conventions?
 # - Add parser for labels, simple echo type thing
 # - Port in code from table.hex3
@@ -29,7 +29,7 @@
 # =========  HEADER
 
 @0 # Z T entry       P1  M1  0 0
-     0 0  90   0      1 FFFF 0 0
+     0 0 2100  0      1 FFFF 0 0
 @8 # I O A B     _ 0xD:halt0
      0 0 0 0     0 0 0 D
 @10 #ALU
@@ -47,16 +47,12 @@
 @28 # C  N Off             (VARS)
       0  0  0  0     0  0  0  0 
 
-#C is last char read (-)
+#C is last char read (-)   (treated as first char of input)
 #N is where read_num puts its result (+)
-#Off is current offset in binary (-)
 #R is retval: address to return to
+#Off is current offset in the binary (-)
 
 
-
-# ======== CODE
-# C is curr char (negated)
-# N is curr num
 
 #Snippets:
 #
@@ -90,60 +86,6 @@
 
 
 
-
-#These are the comparisons we need to make
-#we'll do repeated "if X <= foo, jump bar"
-#for efficiency, we'll do "X-=foo. if X<=0, jump bar"
-#difference between successive characters are in left column
-
-#diff val char
-# -1 -1 <0  EOF
-# 21 20 ' ' nl
-#  2 22 <#  err
-#  1 23  #  comm
-#  C 2F <0  err
-#  A 39  9  dig
-#  5 3E <?  err
-#  1 3F  ?  put_offset
-#  1 40  @  read_num_seek_ahead
-#  6 46  F  dig
-# 1A 60 <a  err
-#  6 66  f  dig
-
-
-@90 #next_char:
-# fetches next char into C(-)
-# jumps handle_char
-  28 28  ?    #  : C C
-   8 28  ?    #  : I C     #getChar()
-
-#expects neg char in C, uses X
-#jumps where needed
-@96 #handle_char:
-#Needs to test what char C(-1) is
-#First copy it into X(+)
-# if ++X LEQZ, C(-) LTZ, so halt0
-# if X-= $21,  C <= ' ', so jump,
-# and so on with successive differences
-  20 20  ?    #  :  X  X
-  28 20  ?    #  :  C  X
-   5 20 D0    #  : $-1 X halt0               # char <0 == EOF
-   4 20  ?    #  : $1  X                     # = 0
- 112 20 90    #  : $20 X next_char           # <=20, ' ' or \n     #TODO: make 0x21 constant
- 102 20 D3    #  : $2  X halt1               # <=22       invalid char
- 101 20 1800  #  : $1  X comment             # <=23   #
- 10C 20 D3    #  : $C  X halt1               # <=2F   
- 10A 20 1880  #  : $A  X read_lit_num        # <=3A   0-9
- 105 20 D3    #  : $5  X halt1               # <=3F
-   4 20 1A00  #  : $1  X put_offset (?)      # <=40   ?
-   4 20 1900  #  : $1  X seek_ahead (@)      # <=41   @
- 106 20 1880  #  : $6  X read_lit_num        # <=47   A-F
- 111 20  ?    #  : $10 X                     # 
- 10A 20 D3    #  : $A  X err                 # <=61
- 106 20 1880  #  : $6  X read_lit_num        # <=67   a-f
-   0  0 D3    #  : Z   Z err                 #  >67
-
-
 @D0 #error_page
    0  0 D0    #D0:   halt0 #success
    1  1 D3    #D3:   err: halt1 #unrecognized char
@@ -172,11 +114,6 @@ FFF8 FFF7 FFF6 FFF5 FFF4 FFF3 FFF2 FFF1
 #13_: (-00) - (-F0)
 0000 FFF0 FFE0 FFD0 FFC0 FFB0 FFA0 FF90
 FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
-
-
-
-#CODE
-
 
 
 
@@ -270,14 +207,14 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   28   20    ?  #   C   X  #X gets +char
    5   20   D0  #  $-1  X halt0  #if X+1 LEQZ, X<0, EOF so halt
  10A   20  1800 #  $A   X comment2  #subtract 1 + 9.   If LEQ, X < '\n', loop
-   0    0   96  #   Z   Z handle_char    #X is definitely \n, end comment
+   0    0  2000 #   Z   Z handle_char    #X is definitely \n, end comment
 
 
 @1880 #=== handle_lit_num 
 # (encountered hex num in src, parse it to end)
    27 27 ?  ?+5 27 ?  0 0 800  ?  #JSR read_num  (parse num into N)
    27 27 ?  ?+5 27 ?  0 0 900  ?  #JSR put_num   (outputs it)
-   0   0  96   #   : jmp back to handle_char
+   0   0  2000  #   : jmp back to handle_char
 
 
 
@@ -326,7 +263,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    0  0  D9    #   : Z Z halt3  
 
 # Clear N, jump to main loop
-  29 29  96    #   : N N handle_char
+  29 29 2000   #   : N N handle_char
 
 
 
@@ -362,6 +299,45 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    5  29   ?   #   : $-1 N  # Will output curr offset + 1 + N
 
    27 27 ?  ?+5 27 ?  0 0 900  ?  #JSR put_num  (outputs N)
-   0   0  96   #   : jmp handle_char
+   0   0 2000  #   : jmp handle_char
 
+
+
+
+
+# =============================== MAIN LOOP
+
+#Note: expects first char of input in C (-)
+# clobbers X, jumps to one of the parser funcs
+# parser funcs jump back here (not using return mechanism)
+
+@2000 #handle_char:
+#Needs to test what char C(-1) is
+#First copy it into X(+)
+  20 20  ?    #  :  X  X
+  28 20  ?    #  :  C  X
+
+# Test value by repeatedly subtracting and testing <= 0
+   5 20 D0    #  : $-1 X halt0               # char <= -1, == EOF
+   4 20  ?    #  : $1  X                     # 
+ 112 20 2100  #  : $20 X skip_char           # <=20, ' ' or \n     #TODO: make 0x21 constant
+ 102 20 D3    #  : $2  X halt1               # <=22       invalid char
+ 101 20 1800  #  : $1  X comment             # <=23   #
+ 10C 20 D3    #  : $C  X halt1               # <=2F   
+ 10A 20 1880  #  : $A  X read_lit_num        # <=3A   0-9
+ 105 20 D3    #  : $5  X halt1               # <=3F
+   4 20 1A00  #  : $1  X put_offset (?)      # <=40   ?
+   4 20 1900  #  : $1  X seek_ahead (@)      # <=41   @
+ 106 20 1880  #  : $6  X read_lit_num        # <=47   A-F
+ 111 20  ?    #  : $10 X                     # 
+ 10A 20 D3    #  : $A  X err                 # <=61
+ 106 20 1880  #  : $6  X read_lit_num        # <=67   a-f
+   0  0 D3    #  : Z   Z err                 #  >67
+
+@2100 # skip_char: 
+# Fetches the next char into C(-), dropping what had been there
+# Jumps to handle_char. Also works as entrypoint
+  28 28  ?    #  : C C
+   8 28  ?    #  : I C     #C(-) := getChar()
+   0  0 2000  #  : jmp handle_char
 
