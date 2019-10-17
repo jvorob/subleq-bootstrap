@@ -35,9 +35,9 @@
 @10 #ALU
 # & | ^ _   << >> _ _
   0 0 0 0   0  0  0 0
-  
+
 @18 #           _ 0x1D: halt1
-      0 0 0 0   0 1 1 1D 
+      0 0 0 0   0 1 1 1D
 
 # ========  REGISTERS AND CO.
 
@@ -45,7 +45,7 @@
       0 0 0 0     0 0 0 0
 
 @28 # C  N Off             (VARS)
-      0  0  0  0     0  0  0  0 
+      0  0  0  0     0  0  0  0
 
 #C is last char read (-)   (treated as first char of input)
 #N is where read_num puts its result (+)
@@ -56,7 +56,7 @@
 
 #Snippets:
 #
-# JLEZ(X,LOC): Z X LOC 
+# JLEZ(X,LOC): Z X LOC
 # JGEZ(X,LOC): T T; X T LOC
 # JGTZ(X,LOC): T T; $-1 T; X T LOC;
 # JLTZ(X,LOC): T T; X T ?+3; Z Z LOC;
@@ -76,13 +76,12 @@
 #   _  _  _            # returns to here
 #
 # (JSR oneliner)
-#   27 27 ?  ?+5 27 ?  0 0 sub_routine  ?  #JSR 
+#   27 27 ?  ?+5 27 ?  0 0 sub_routine  ?  #JSR
 #
 # GADGET: retsub  (1-level)
 # ?+7 ?+6    ?
 #   R ?+3    ?    #set Q = -R
 #   Z   Z  Q:0    #jmp -R
-
 
 
 
@@ -100,7 +99,7 @@
 
 
 
-#100 - 110 constants
+# constants
 @100
 #10_: 0-F
 0 1 2 3 4 5 6 7 8 9 A B C D E F
@@ -108,17 +107,12 @@
 0 10 20 30 40 50 60 70 80 90 A0 B0 C0 D0 E0 F0
 
 #12_: -0 - -F
-0000 FFFF FFFE FFFD FFFC FFFB FFFA FFF9 
+0000 FFFF FFFE FFFD FFFC FFFB FFFA FFF9
 FFF8 FFF7 FFF6 FFF5 FFF4 FFF3 FFF2 FFF1
 
 #13_: (-00) - (-F0)
 0000 FFF0 FFE0 FFD0 FFC0 FFB0 FFA0 FF90
 FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
-
-
-
-
-
 
 
 
@@ -140,7 +134,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
  10A 20 833    #   :  $A X num_dig    #<=39, '0'-'9'
  107 20  F0    #   :  $7 X return     #<=40
  106 20 830    #   :  $6 X num_alpha  #<=46  'A'-'F'
- 111 20   ?    #   : $10 X 
+ 111 20   ?    #   : $10 X
  10A 20  F0    #   :  $A X return     #<=60
  106 20 830    #   :  $6 X num_alpha  #<=66  'a'-'f'
    0  0  F0    #   :   Z Z return     #>66
@@ -175,12 +169,12 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #   return to R
    A  A   ?     #   : A   A
   29  0   ?     #   : N   Z
-   0  A   ?     #   : Z   A   
+   0  A   ?     #   : Z   A
    0  0   ?     #   : Z   Z  #A=+N
    B  B   ?     #   : B   B
  13F  B   ?     #   : $-F0 B
  12F  B   ?     #   : $-F B #B=FF
-  10  0   ?     #   : AND Z                    
+  10  0   ?     #   : AND Z
    0  9   ?     #   : Z   O   #putchar(N & FF)
    0  0   ?     #   : Z   Z
    B  B   ?     #   : B   B
@@ -200,7 +194,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 # keep looping until \n, then go to handle_char
 # Now optimized for common case, if char>'a', runs in 3 steps
   28   28    ?  #   C   C
- 12B   28    ?  #   $-B C 
+ 12B   28    ?  #   $-B C
    8   28  1800 #   I   C comment2   #C = $B - getChar(); if C<=0, then char >$a
  10B   28    ?  #   $B  C
   20   20    ?  #   X   X
@@ -210,12 +204,12 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    0    0  2000 #   Z   Z handle_char    #X is definitely \n, end comment
 
 
-@1880 #=== handle_lit_num 
+
+@1880 #=== handle_lit_num
 # (encountered hex num in src, parse it to end)
    27 27 ?  ?+5 27 ?  0 0 800  ?  #JSR read_num  (parse num into N)
    27 27 ?  ?+5 27 ?  0 0 900  ?  #JSR put_num   (outputs it)
    0   0  2000  #   : jmp back to handle_char
-
 
 
 
@@ -234,33 +228,27 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 #target addr in N (+)
 #If (target < offset), halt2  (seeking backwards is a bug)
-  20 20   ?    #   : X X    
+  20 20   ?    #   : X X
   2A 20   ?    #   : Off X      # Off is (-)
   29 20 ?+3    #   : N   X ?+3  # X = Off - N
    0  0  D6    #   : Z Z halt2       #if Off > N, halt2    (seeking backwards is an err)
 
-
-# Loop X times, outputing 000D
+# Loop X times, outputing 000D. (If X==0, jumps to end and breaks)
    0  0 1949   #   : Z Z seek_while  (jump into loop)
-               #                     do body of loop exactly -X times
-               #                     if X == 0, seek_while does X++, immediate break
-               #                     if X < 0, seek_while enters loop, inc X
          @1940 #seek_loop: (output a halt 000D) Runs as long as X<0
- 12D  9   ?    #   : $-D O      
+ 12D  9   ?    #   : $-D O
    0  9   ?    #   : $0  O             #putword(000D)
    4 2A   ?    #   : $1 Off            #inc offset, (not strictly necessary here)
          @1949 #seek_while:
    5 20 1940   #   : $-1 X seek_loop   #loop while ++X LEQZ, or while X++ LTZ
 
-
-                                # Clear N, jmp handle_char (since coming from read_num)
 # Assert Off == N
-   3  3   ?    #   : T T               
+   3  3   ?    #   : T T
   2A  3   ?    #   : Off T
   29  3 ?+3    #   : N T ?+3    # T must be <=0
    0  0  D9    #   : Z Z halt3  # else
    3  0 ?+3    #   : T Z ?+3    # T must be >=0
-   0  0  D9    #   : Z Z halt3  
+   0  0  D9    #   : Z Z halt3
 
 # Clear N, jump to main loop
   29 29 2000   #   : N N handle_char
@@ -268,8 +256,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 
-
-@1A00 #=== put_offset: 
+@1A00 #=== put_offset:
 # handles '?'
 # ? on its own puts address of next byte
 # '?+NUM' puts next byte + NUM
@@ -280,12 +267,12 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #test if next char == "+"
   20  20   ?   #   : X X
   28  20   ?   #   : C X  #X = +char (-C)
- 112  20   ?   #   : $20 X      
+ 112  20   ?   #   : $20 X
  10A  20 1A60  #   : $A X put_offset_finish   #X <=2A
    4  20 1A40  #   : $1 X put_offset_plus     #X <=2B  '+'
    0   0 1A60  #   : Z Z  put_offset_finish   #X  >2B
 
-@1A40 #put_offset_plus: 
+@1A40 #put_offset_plus:
 # we got a plus sign,
   28  28   ?   #330: C C
    8  28   ?   # 33: I C #getchar (drop the plus sign)
@@ -304,7 +291,6 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 
-
 # =============================== MAIN LOOP
 
 #Note: expects first char of input in C (-)
@@ -319,22 +305,22 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 # Test value by repeatedly subtracting and testing <= 0
    5 20 D0    #  : $-1 X halt0               # char <= -1, == EOF
-   4 20  ?    #  : $1  X                     # 
+   4 20  ?    #  : $1  X                     #
  112 20 2100  #  : $20 X skip_char           # <=20, ' ' or \n     #TODO: make 0x21 constant
  102 20 D3    #  : $2  X halt1               # <=22       invalid char
  101 20 1800  #  : $1  X comment             # <=23   #
- 10C 20 D3    #  : $C  X halt1               # <=2F   
+ 10C 20 D3    #  : $C  X halt1               # <=2F
  10A 20 1880  #  : $A  X read_lit_num        # <=3A   0-9
  105 20 D3    #  : $5  X halt1               # <=3F
    4 20 1A00  #  : $1  X put_offset (?)      # <=40   ?
    4 20 1900  #  : $1  X seek_ahead (@)      # <=41   @
  106 20 1880  #  : $6  X read_lit_num        # <=47   A-F
- 111 20  ?    #  : $10 X                     # 
+ 111 20  ?    #  : $10 X                     #
  10A 20 D3    #  : $A  X err                 # <=61
  106 20 1880  #  : $6  X read_lit_num        # <=67   a-f
    0  0 D3    #  : Z   Z err                 #  >67
 
-@2100 # skip_char: 
+@2100 # skip_char:
 # Fetches the next char into C(-), dropping what had been there
 # Jumps to handle_char. Also works as entrypoint
   28 28  ?    #  : C C
