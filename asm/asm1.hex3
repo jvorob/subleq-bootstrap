@@ -136,7 +136,7 @@
  10A 20 1880  #  : $A  X read_lit_num        # <=3A   0-9
  105 20 D3    #  : $5  X halt1               # <=3F
    4 20 300   #  : $1  X put_offset (?)      # <=40   ?
-   4 20 250   #  : $1  X seek_ahead (@)      # <=41   @
+   4 20 1900  #  : $1  X seek_ahead (@)      # <=41   @
  106 20 1880  #  : $6  X read_lit_num        # <=47   A-F
  111 20  ?    #  : $10 X                     # 
  10A 20 D3    #  : $A  X err                 # <=61
@@ -175,66 +175,11 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 
-#part 2: read_num
-#
-
 #CODE
 
-#read_num: expects -char in C, uses X, parses until end of number, prints little-endian word
-#when number ends, if R LEQZ, output number
-#                  if R GTZ, jump to seek_ahead
-#TODO: handle EOF
 
 
 
-
-#Calls getchar to skip '@'
-@250 #seek_ahead:
-  28 28   ?    #250: C C
-   8 28   ?    #263: I C            #getchar(), since curr char is @
-  27 27   ?    #266: R   R
- 25F 27   ?    #269: retaddr R
-   0  0 800    #26C: Z Z read_num   # JSR (read_num)
-@25F ?  #.retaddr
-
-@260 # ===== seek_ahead_got_num:
-#Have target addr in N (+)
-#Outputs 0D until offset == N
-#If (target < offset), halt2  (seeking backwards is a bug)
-#seek_ahead_got_num
-  20 20   ?    #260: X X    
-  2A 20   ?    #263: Off X      # Off is (-)
-  29 20 ?+3    #266: N   X ?+3  # X = Off - N
-   0  0  D6    #269: Z Z halt2       #if Off > N, halt2    (seeking backwards is an err)
-   0  0 289    #26C: Z Z seek_while  #else jump 
-               #                     while do body of loop exactly -X times
-               #                     if X == 0, seek_while does X++, immediate break
-               #                     if X < 0, seek_while enters loop, inc X
-
-@280 #seek_loop: (output a halt 000D) Runs as long as X<0
- 12D  9   ?    #   : $-D O      
-   0  9   ?    #   : $0  O             #putword(000D)
-   4 2A   ?    #   : $1 Off            #inc offset, (not strictly necessary here)
-@289 #seek_while:
-   5 20 280    #   : $-1 X seek_loop   #loop while ++X LEQZ, or while X++ LTZ
-
-   0  0 290    #   :  Z  Z seek_end
-@290 #seek_end:                   assert that Off(-) == N, else halt3
-     #                            Clear N, jmp handle_char (since coming from read_num)
-   3  3   ?    #   : T T               
-  2A  3   ?    #   : Off T
-  29  3 ?+3    #   : N T ?+3    # T must be <=0
-   0  0  D9    #   : Z Z halt3  # else
-   3  0 ?+3    #   : T Z ?+3    # T must be >=0
-   0  0  D9    #   : Z Z halt3  
-   0  0   ?    #   : Z Z                              
-  29 29  96    #   : N N handle_char
-
-#plan: take X=Off-N, need to output (-X words)
-#X+=1 (need to output -X + 1 words)
-#while X LEZ: (will run -X + 1 times)
-#  putchar putchar
-#  X++
 
 
 
@@ -377,4 +322,51 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    0   0  96   #   : jmp back to handle_char
 
 
+
+
+
+@1900 #=== seek_ahead:
+# Encountered '@' in source
+# Next must be number, parse it
+# Skip ahead to that offset in the file, outputting '000D'
+# If seeking backwards, error out
+#
+  28 28   ?    #   : C C
+   8 28   ?    #   : I C            #getchar(), to drop C(-) = '@'
+  27 27   ?    #   : R   R
+
+   27 27 ?  ?+5 27 ?  0 0 800  ?  #JSR read_num  (parse num into N)
+
+#target addr in N (+)
+#If (target < offset), halt2  (seeking backwards is a bug)
+  20 20   ?    #   : X X    
+  2A 20   ?    #   : Off X      # Off is (-)
+  29 20 ?+3    #   : N   X ?+3  # X = Off - N
+   0  0  D6    #   : Z Z halt2       #if Off > N, halt2    (seeking backwards is an err)
+
+
+# Loop X times, outputing 000D
+   0  0 1949   #   : Z Z seek_while  (jump into loop)
+               #                     do body of loop exactly -X times
+               #                     if X == 0, seek_while does X++, immediate break
+               #                     if X < 0, seek_while enters loop, inc X
+         @1940 #seek_loop: (output a halt 000D) Runs as long as X<0
+ 12D  9   ?    #   : $-D O      
+   0  9   ?    #   : $0  O             #putword(000D)
+   4 2A   ?    #   : $1 Off            #inc offset, (not strictly necessary here)
+         @1949 #seek_while:
+   5 20 1940   #   : $-1 X seek_loop   #loop while ++X LEQZ, or while X++ LTZ
+
+
+                                # Clear N, jmp handle_char (since coming from read_num)
+# Assert Off == N
+   3  3   ?    #   : T T               
+  2A  3   ?    #   : Off T
+  29  3 ?+3    #   : N T ?+3    # T must be <=0
+   0  0  D9    #   : Z Z halt3  # else
+   3  0 ?+3    #   : T Z ?+3    # T must be >=0
+   0  0  D9    #   : Z Z halt3  
+
+# Clear N, jump to main loop
+  29 29  96    #   : N N handle_char
 
