@@ -135,7 +135,7 @@
  10C 20 D3    #  : $C  X halt1               # <=2F   
  10A 20 1880  #  : $A  X read_lit_num        # <=3A   0-9
  105 20 D3    #  : $5  X halt1               # <=3F
-   4 20 300   #  : $1  X put_offset (?)      # <=40   ?
+   4 20 1A00  #  : $1  X put_offset (?)      # <=40   ?
    4 20 1900  #  : $1  X seek_ahead (@)      # <=41   @
  106 20 1880  #  : $6  X read_lit_num        # <=47   A-F
  111 20  ?    #  : $10 X                     # 
@@ -184,54 +184,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 
-# ================================================
-#                PUT_OFFSET
-# handles '?'
-# ? on its own puts address of next byte
-# '?+NUM' puts next byte + NUM
-@300 #put_offset: 
-  29  29   ?   #   : N N
-  28  28   ?   #   : C C
-   8  28   ?   #   : I C #getchar (after ?)
-
-#test if next char == "+"
-  20  20   ?   #   : X X
-  28  20   ?   #   : C X  #X = +char (-C)
- 112  20   ?   #   : $20 X      
- 10A  20 360   #   : $A X put_offset_finish   #X <=2A
-   4  20 330   #   : $1 X put_offset_plus     #X <=2B
-   0   0 360   #   : Z Z  put_offset_finish   #X  >2B
 
 
-
-
-@330 #put_offset_plus: 
-# we got a plus: drop the char, then jsr read_num
-  28  28   ?   #330: C C
-   8  28   ?   # 33: I C #getchar (after ?)
-
-  27  27   ?   # 36: R     R   
- ?+5  27   ?   # 39: ?+5   R   
-   0   0 800   # 3C: Z     Z  read_num # jsr read_num
- 360           #33F: retaddr: goto put_offset_finish
-
-
-@360 #put_offset_finish:
-#Now N is the offset, C is next char to be read
-#Ouput offset+N, jump output_num (returns to handle_char)
-   0   0   ?   #   : 
-  2A  29   ?   #   : Off N  #N = +offset (-O)
-  28  28   ?   #   : C C
-   8  28   ?   #   : I C  #getchar()  (since output_num jumps to handle_num)
-   5  29   ?   #   : $-1 N  #N = offset+1
-
-   27 27 ?  ?+5 27 ?  0 0 900  ?  #JSR put_num  (outputs N)
-   0   0  96   #   : jmp handle_char
-
-
-
-
-# ======================= Reorganized code
+# ======================= Primitives
 
 
 # Parses a number from stdin, (first char in C)
@@ -301,6 +256,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 
+# ======================= Parser Functions
+# Handle input, return to main loop
+
 @1800 #=== comment:
 # keep looping until \n, then go to handle_char
 # Now optimized for common case, if char>'a', runs in 3 steps
@@ -369,4 +327,41 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 # Clear N, jump to main loop
   29 29  96    #   : N N handle_char
+
+
+
+
+
+@1A00 #=== put_offset: 
+# handles '?'
+# ? on its own puts address of next byte
+# '?+NUM' puts next byte + NUM
+  29  29   ?   #   : N N # clear N, will set to nonzero if +offset
+  28  28   ?   #   : C C
+   8  28   ?   #   : I C # getchar (after ?)
+
+#test if next char == "+"
+  20  20   ?   #   : X X
+  28  20   ?   #   : C X  #X = +char (-C)
+ 112  20   ?   #   : $20 X      
+ 10A  20 1A60  #   : $A X put_offset_finish   #X <=2A
+   4  20 1A40  #   : $1 X put_offset_plus     #X <=2B  '+'
+   0   0 1A60  #   : Z Z  put_offset_finish   #X  >2B
+
+@1A40 #put_offset_plus: 
+# we got a plus sign,
+  28  28   ?   #330: C C
+   8  28   ?   # 33: I C #getchar (drop the plus sign)
+   27 27 ?  ?+5 27 ?  0 0 800  ?  #JSR read_num  (parse num into N)
+
+   0   0 1A60  # (link here)
+#Now N is the offset, C is next char to be read
+#Ouput offset+1 (next loc), +N if N is nonzero
+@1A60 #put_offset_finish:
+  2A  29   ?   #   : Off N  #N += +offset (-O)
+   5  29   ?   #   : $-1 N  # Will output curr offset + 1 + N
+
+   27 27 ?  ?+5 27 ?  0 0 900  ?  #JSR put_num  (outputs N)
+   0   0  96   #   : jmp handle_char
+
 
