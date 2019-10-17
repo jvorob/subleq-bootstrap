@@ -340,7 +340,7 @@ int run_binary(char *fname) {
     fprintf(stderr, "Loading binary from %s\n", fname);
     init_vm(&global_vm);
     load_binary_file(&global_vm, binfile);
-    printf("Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
+    fprintf(stderr, "Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
     int retval = run(&global_vm);
     fprintf(stderr, "=======\nHalted with code %d after %ld steps\n", retval, global_vm.num_cycles);
     return(retval);
