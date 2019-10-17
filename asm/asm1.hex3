@@ -133,14 +133,14 @@
  102 20 D3    #  : $2  X halt1               # <=22       invalid char
  101 20 1800  #  : $1  X comment             # <=23   #
  10C 20 D3    #  : $C  X halt1               # <=2F   
- 10A 20 160   #  : $A  X read_lit_num        # <=3A   0-9
+ 10A 20 1880  #  : $A  X read_lit_num        # <=3A   0-9
  105 20 D3    #  : $5  X halt1               # <=3F
    4 20 300   #  : $1  X put_offset (?)      # <=40   ?
    4 20 250   #  : $1  X seek_ahead (@)      # <=41   @
- 106 20 160   #  : $6  X read_lit_num        # <=47   A-F
+ 106 20 1880  #  : $6  X read_lit_num        # <=47   A-F
  111 20  ?    #  : $10 X                     # 
  10A 20 D3    #  : $A  X err                 # <=61
- 106 20 160   #  : $6  X read_lit_num        # <=67   a-f
+ 106 20 1880  #  : $6  X read_lit_num        # <=67   a-f
    0  0 D3    #  : Z   Z err                 #  >67
 
 
@@ -176,14 +176,6 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 #part 2: read_num
-#diff val char
-# 2F 2F <0  fin
-#  A 39  9  num_dig
-#  7 40 <A  fin
-#  6 46  F  num_alpha
-# 1A 60 <a  fin
-#  6 66  f  num_alpha
-#           fin
 #
 
 #CODE
@@ -194,43 +186,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #TODO: handle EOF
 
 
-@160 #read_lit_num
-#JSR read_num
-#return to output num
-  27  27   ?   #16 : R   R
- ?+5  27   ?   #163: ?+5 R
-   0   0 800   #166: Z Z read_num
-#   27 27 ?  ?+5 27 ?  0 0 sub_routine  ?  #JSR  (TODO)
- 210           #169: .return to output_num
-
-
-
-#   we just got a char that's not a num,
-#   print out contents of N, little-endian,
-#   clear N
-#   jump to handle_char (don't get a new one)
-@210  #output_num:
-   A  A   ?     #   : A   A
-  29  0   ?     #   : N   Z
-   0  A   ?     #   : Z   A   
-   0  0   ?     #   : Z   Z  #A=+N
-   B  B   ?     #   : B   B
- 13F  B   ?     #   : $-F0 B
- 12F  B   ?     #   : $-F B #B=FF
-  10  0   ?     #   : AND Z                    
-   0  9   ?     #   : Z   O   #putchar(N & FF)
-   0  0   ?     #   : Z   Z
-   B  B   ?     #   : B   B
- 128  B   ?     #   : $-8 B #B=8
-  15  0   ?     #   : RS  Z
-   0  9   ?     #   : Z   O   #putchar(N >> 8)
-  29 29   ?     #   : N   N   #clear n for next round
-   4 2A   ?     #   : $1 Off   #inc offset
-   0  0  96     #   : Z Z handle_char
 
 
 #Calls getchar to skip '@'
-#JSR read_num
 @250 #seek_ahead:
   28 28   ?    #250: C C
    8 28   ?    #263: I C            #getchar(), since curr char is @
@@ -321,32 +279,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   28  28   ?   #   : C C
    8  28   ?   #   : I C  #getchar()  (since output_num jumps to handle_num)
    5  29   ?   #   : $-1 N  #N = offset+1
-   0   0 210   #   : Z Z output_num
 
-# ============ ETC
-# ALU-less shift and add
-#shift_and_add: N = N<<4 + X
-# T T
-# N Z
-# N Z
-# Z T
-# Z T
-# Z Z #T=4*N
-# N N
-# T Z
-# T Z
-# Z N
-# Z N
-# Z Z # N = 16 * oldn
-
-# X Z     N+= X
-# Z N
-# Z Z
-
-
-   0   0   ?   #FFFF 
-FFFF FFF FFF   #
-
+   27 27 ?  ?+5 27 ?  0 0 900  ?  #JSR put_num  (outputs N)
+   0   0  96   #   : jmp handle_char
 
 
 
@@ -354,54 +289,76 @@ FFFF FFF FFF   #
 # ======================= Reorganized code
 
 
-# Parses a number from stdin, first char in C
+# Parses a number from stdin, (first char in C)
 # Result stored in N
 # Returns to R at first non-digit char, leaves that char in C
+#TODO: generate err on overflow
 @800 #read_num:             #doesnt set R, will return through output_num
+  29 29   ?    #   : N N (clear N)
+@803 #read_num_continue
   20 20   ?    #   : X X
   28 20   ?    #   : C X  #X has +char
  112 20   ?    #   : $20 X
- 10F 20  F0    #   :  $F X return     #<0
- 10A 20 833    #   :  $A X num_dig   #0-9
- 107 20  F0    #   :  $7 X return     <A
- 106 20 830    #   :  $6 X num_alpha  A-F
+ 10F 20  F0    #   :  $F X return     #<=2F
+ 10A 20 833    #   :  $A X num_dig    #<=39, '0'-'9'
+ 107 20  F0    #   :  $7 X return     #<=40
+ 106 20 830    #   :  $6 X num_alpha  #<=46  'A'-'F'
  111 20   ?    #   : $10 X 
- 10A 20  F0    #   :  $A X return     <a
- 106 20 830    #   :  $6 X num_alpha  a-f
-   0  0  F0    #   :   Z Z return     >f
+ 10A 20  F0    #   :  $A X return     #<=60
+ 106 20 830    #   :  $6 X num_alpha  #<=66  'a'-'f'
+   0  0  F0    #   :   Z Z return     #>66
 
 @830 #num_alpha
  126 20   ?    #   : $-6 X   #if alpha, value is X + F
 @833 #num_dig
  129 20   ?    #   : $-9 X   #if digit, value is X + 9
 
-#now X is value(+) of this digit
-
-#N = N<<4 + X, getc(), jmp read_num (keep parsing)
-#TODO: err out on overflow
-#shift_up:    
+# now X is value(+) of this digit
+# Shift N<<=4
    A  A   ?    #   : A A
   29  A   ?    #   : N A
    B  B   ?    #   : B B
  124  B   ?    #   : $-4 B
   29 29   ?    #   : N N
   14 29   ?    #   : LS N  #N << 4 (negativeness wouldn't matter if it wasn't overflowing anyway)
+
+# Add X
   20  0   ?    #   : X Z
    0 29   ?    #   : Z N  #N += X
   28 28   ?    #   : C C
+
+# loop
    8 28   ?    #   : I C  #getChar()
-   0  0 800    #   : Z Z read_num
-
-   0  0  F0    #   : jmp retsub
+   0  0 803    #   : Z Z read_num_continue  (loop)
 
 
 
+@900 #=== put_num
+#   print out contents of N, little-endian,
+#   return to R
+   A  A   ?     #   : A   A
+  29  0   ?     #   : N   Z
+   0  A   ?     #   : Z   A   
+   0  0   ?     #   : Z   Z  #A=+N
+   B  B   ?     #   : B   B
+ 13F  B   ?     #   : $-F0 B
+ 12F  B   ?     #   : $-F B #B=FF
+  10  0   ?     #   : AND Z                    
+   0  9   ?     #   : Z   O   #putchar(N & FF)
+   0  0   ?     #   : Z   Z
+   B  B   ?     #   : B   B
+ 128  B   ?     #   : $-8 B #B=8
+  15  0   ?     #   : RS  Z
+   0  9   ?     #   : Z   O   #putchar(N >> 8)
+   4 2A   ?     #   : $1 Off   #inc offset
+   0  0  F0     #   : retsub
 
 
 
+
+@1800 #=== comment:
 # keep looping until \n, then go to handle_char
 # Now optimized for common case, if char>'a', runs in 3 steps
-@1800 #comment:
   28   28    ?  #   C   C
  12B   28    ?  #   $-B C 
    8   28  1800 #   I   C comment2   #C = $B - getChar(); if C<=0, then char >$a
@@ -411,5 +368,13 @@ FFFF FFF FFF   #
    5   20   D0  #  $-1  X halt0  #if X+1 LEQZ, X<0, EOF so halt
  10A   20  1800 #  $A   X comment2  #subtract 1 + 9.   If LEQ, X < '\n', loop
    0    0   96  #   Z   Z handle_char    #X is definitely \n, end comment
+
+
+@1880 #=== handle_lit_num 
+# (encountered hex num in src, parse it to end)
+   27 27 ?  ?+5 27 ?  0 0 800  ?  #JSR read_num  (parse num into N)
+   27 27 ?  ?+5 27 ?  0 0 900  ?  #JSR put_num   (outputs it)
+   0   0  96   #   : jmp back to handle_char
+
 
 
