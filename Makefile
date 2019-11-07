@@ -71,3 +71,8 @@ clean:
 	rm -f $(objdir)/*
 	rm -f $(bins)
 	rm -f *.bin
+
+
+.PHONY: hls
+hls:
+	vivado_hls -i -f hls-script.tcl

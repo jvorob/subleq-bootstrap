@@ -54,6 +54,9 @@ bool glb_DEBUGGING_ENABLED = FALSE;
 bool glb_QUAD_ALIGNED = FALSE;  // if true, ops are 4 words at a time and must be 4-word aligned
 struct vm_state global_vm;
 
+
+volatile unsigned int *uart;
+
 // =============== CONSTANTS
 #define LOG_PREFIX "DEBUG-"
 
@@ -119,6 +122,9 @@ int16_t program_init[] = {
 
 //gets a char from stdin
 int16_t get_input() {
+#ifdef __SYNTHESIS__
+    return *(volatile unsigned int *)(uart);
+#else
     int16_t c = getc(stdin);
     if(glb_DEBUGGING_ENABLED) {
         if(c == '\n') {
@@ -130,10 +136,14 @@ int16_t get_input() {
         }
     }
     return c;
+#endif
 }
 
 //clamps output to 8 bits, prints to stdout
 void write_output(int16_t c) {
+#ifdef __SYNTHESIS__
+    *(volatile unsigned int *)(uart+0x4) = c;
+#else
     putc(c & 0xFF, stdout);
     if(glb_DEBUGGING_ENABLED) {
         if(c == '\n') {
@@ -144,6 +154,7 @@ void write_output(int16_t c) {
             fprintf(stderr, LOG_PREFIX "Output: nonprintable, %hx\n", c);
         }
     }
+#endif 
 }
 
 #define SHOW_VAR(name,loc) fprintf(stderr, ", " #name "=%04hx", vm->mem[loc]);
@@ -152,6 +163,8 @@ void write_output(int16_t c) {
 
 //Runs one step, returns 0 normally, 1 if halt
 int step(struct vm_state *vm) {
+//#pragma HLS PIPELINE
+
     vm->num_cycles++;
 
     if(glb_DEBUGGING_ENABLED){
@@ -270,8 +283,12 @@ void load_test_program(struct vm_state *vm) {
 //Starts executing at pc=0, runs until halt
 //
 //On halt, returns retval = first operand of halt instruction
-int run(struct vm_state *vm) {
+int run() {
+#pragma HLS INTERFACE m_axi port=uart
+#pragma HLS INTERFACE ap_ctrl_none port=return
+
     int retval;
+    struct vm_state *vm = &global_vm;
     do {
         retval = step(vm);
     } while (retval == 0);
@@ -318,7 +335,7 @@ void run_default_program() {
     init_vm(&global_vm);
     load_test_program(&global_vm);
     printf("Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
-    int retval = run(&global_vm);
+    int retval = run();
     printf("=======\nExited with code %d\n", retval);
 }
 
@@ -341,7 +358,7 @@ int run_binary(char *fname) {
     init_vm(&global_vm);
     load_binary_file(&global_vm, binfile);
     fprintf(stderr, "Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
-    int retval = run(&global_vm);
+    int retval = run();
     fprintf(stderr, "=======\nHalted with code %d after %ld steps\n", retval, global_vm.num_cycles);
     return(retval);
 }

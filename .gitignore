@@ -6,3 +6,8 @@ build/
 
 sleqrun
 hex1
+
+
+subleq-hls/
+hs_err_pid*.log
+vivado_hls.log
