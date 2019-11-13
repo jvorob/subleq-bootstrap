@@ -41,9 +41,11 @@
 
 # ========  REGISTERS AND CO.
 
+#Unsaved registers
 @20 # X Y Z W               (REGS)
       0 0 0 0     0 0 0 0
 
+#Saved registers (only modify these if you're top-level, or save them first)
 @28 #
       0  0  0  0     0  0  0  0
 
@@ -57,8 +59,9 @@
 @38 #More vars
 #buffer_b _
  0        0
+#strtab_base strtab_end   (next new string in strtab goes at strtab_end)
+ 0        0
 #Table_b table_size 
-#strtab_b strtab_size 
 #_  _
 
 
@@ -70,35 +73,6 @@
 
 
 
-#Snippets:
-#
-# JLEZ(X,LOC): Z X LOC
-# JGEZ(X,LOC): T T; X T LOC
-# JGTZ(X,LOC): T T; $-1 T; X T LOC;
-# JLTZ(X,LOC): T T; X T ?+3; Z Z LOC;
-#
-# SUBJGE(X,Y,LOC): X Y LOC;            #Y -= X
-# SUBJLE(X,Y,LOC): T T; X Y; Y T LOC;  #Y -= X
-#
-#
-# JGE(X,Y,LOC): T T; Y Z; Z T; Z Z; X T LOC;
-# JLE: mirror
-#
-# GADGET: jsr  (1-level)
-#   R  R  ?
-# ?+5  R  ?            # copy constant retaddr to R(-)
-#   Z  Z  sub_routine  # jump subroutine
-#   ?                  # constant ret_addr
-#   _  _  _            # returns to here
-#
-# (JSR oneliner)
-#   38 38 ?  ?+5 38 ?  0 0 sub_routine  ?  #JSR
-#
-# GADGET: retsub  (1-level)
-# ?+7 ?+6    ?
-#   R ?+3    ?    #set Q = -R
-#   Z   Z  Q:0    #jmp -R
-#
 
 
 # ======== Small integer constants:
@@ -207,6 +181,25 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    0  9   ?     #   : Z   O   #putchar(N >> 8)
    4 32   ?     #   : $1 Off   #inc offset
    0  0  F0     #   : retsub
+
+
+@A00 #== read_label
+#  reads as long as we have [0-9a-zA-Z_]
+#  puts string into buffer
+#  length at buff[0], string from buff[1]..buff[len]
+
+#overview: LOOP: check C: if invalid goto end
+# loop_body:
+#   put char, inc len, jump loop_test
+#
+#   ptrs: strtab_base, strtab_end
+#    (end points right after last entry)
+#    (read label reads a string into strtab_end, with length)
+#
+#
+#    intern_string expects a string at strtab_end
+#    if it's already in strtab, it keeps it 
+#    if it's new, increase strtab_end to enclose it
 
 
 
@@ -351,3 +344,60 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    8 30  ?    #  : I C     #C(-) := getChar()
    0  0 2000  #  : jmp handle_char
 
+
+
+
+
+
+
+
+
+# ========== GADGETS / CODE SNIPPETS
+
+
+#Snippets:
+#
+# JLEZ(X,LOC): Z X LOC
+# JGEZ(X,LOC): T T; X T LOC
+# JGTZ(X,LOC): T T; $-1 T; X T LOC;
+# JLTZ(X,LOC): T T; X T ?+3; Z Z LOC;
+#
+# SUBJGE(X,Y,LOC): X Y LOC;            #Y -= X
+# SUBJLE(X,Y,LOC): T T; X Y; Y T LOC;  #Y -= X
+#
+#
+# JGE(X,Y,LOC): T T; Y Z; Z T; Z Z; X T LOC;
+# JLE: mirror
+#
+# GADGET: jsr  (1-level)
+#   R  R  ?
+# ?+5  R  ?            # copy constant retaddr to R(-)
+#   Z  Z  sub_routine  # jump subroutine
+#   ?                  # constant ret_addr
+#   _  _  _            # returns to here
+#
+# (JSR oneliner)
+#   38 38 ?  ?+5 38 ?  0 0 sub_routine  ?  #JSR
+#
+# GADGET: retsub  (1-level)
+# ?+7 ?+6    ?
+#   R ?+3    ?    #set Q = -R
+#   Z   Z  Q:0    #jmp -R
+#
+
+
+# GADGET: FETCH_SUBTRACT: *(-P) X
+# ?+5 ?+4   ?  #   : Q   Q     #
+#   P ?+1   ?  #   : P   Q     #
+#   _   X   ?  #   : Q:_ X     # X -= *(-P)
+#
+#
+# GADGET: POKE: *(P-) = -X
+# ?+11 ?+10 ? # J J            #  *(P-) = -X
+#   22 ?+D  ? # P J            #  . 
+#  ?+C ?+B  ? # K K            #  . 
+#   22 ?+8  ? # P K            #  . 
+#  ?+9 ?+8  ? # L L            #  . 
+#   22 ?+5  ? # P L            #  . 
+#    0   0  ? # J:_ K:_        #  . 
+#   20   0  ? #  X  L:_        #  . 
