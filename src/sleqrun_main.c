@@ -49,10 +49,20 @@
 
 //struct vm_state defined in shared.h
 
+struct vm_debug_opts {
+    int dump_base_addr;
+    int dump_len;
+};
+
 // =============== GLOBALS
-bool glb_DEBUGGING_ENABLED = FALSE;
 bool glb_QUAD_ALIGNED = FALSE;  // if true, ops are 4 words at a time and must be 4-word aligned
 struct vm_state global_vm;
+
+// =============== DEBUGGING GLOBALS
+bool glb_DEBUGGING_ENABLED = FALSE;
+
+struct vm_debug_opts glb_debug_opts = {0};
+
 
 // =============== CONSTANTS
 #define LOG_PREFIX "DEBUG-"
@@ -343,21 +353,48 @@ int run_binary(char *fname) {
     fprintf(stderr, "Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
     int retval = run(&global_vm);
     fprintf(stderr, "=======\nHalted with code %d after %ld steps\n", retval, global_vm.num_cycles);
+
+    if (glb_debug_opts.dump_len > 0) {
+        int addr = glb_debug_opts.dump_base_addr;
+        int len = glb_debug_opts.dump_len;
+        fprintf(stderr, "Debug: dumping memory at %04hx: 0x%hx words\n", addr, len);
+
+        for (int i = 0; i < len; i++) {
+            int curr_addr = addr + i;
+            fprintf(stderr, "--  %04hx: %04hx (-%04hx)\n", 
+                            curr_addr, global_vm.mem[curr_addr], -global_vm.mem[curr_addr]);
+        }
+    }
+
     return(retval);
 }
 
 //print usage to stderr
 void print_usage() {
     fprintf(stderr, "Usage: \n");
-    fprintf(stderr, "      sleqrun -      # read binary from stdin until EOF, then run it\n");
-    fprintf(stderr, "      sleqrun FILE   # read binary from file, run it\n");
-    fprintf(stderr, "   Options:\n");
-    fprintf(stderr, "      --debug        # enables debugging output\n");
-    fprintf(stderr, "      --4aligned     # instructions must be 4-word aligned, 4th is ignored\n");
-    fprintf(stderr, "      --unaligned    # instructions are any 3 consecutive dwords\n");
-    fprintf(stderr, "                     # (default is unaligned)\n");
+    fprintf(stderr, "      sleqrun -       # read binary from stdin until EOF, then run it\n");
+    fprintf(stderr, "      sleqrun FILE    # read binary from file, run it\n");
+    fprintf(stderr, "   Run options:\n");
+    fprintf(stderr, "      --4aligned      # instructions must be 4-word aligned, 4th is ignored\n");
+    fprintf(stderr, "      --unaligned     # instructions are any 3 consecutive dwords\n");
+    fprintf(stderr, "                      # (default is unaligned)\n");
+    fprintf(stderr, "   Debugging Options:\n");
+    fprintf(stderr, "      --debug         # enables verbose debugging output per-step\n");
+    fprintf(stderr, "      --dump ADDR LEN # on program exit, dumps LEN words at ADDR\n");
 }
 
+
+// parses string str, puts result in res
+// returns 1 if succeeded, 0 if failed
+int parse_hex(char *str, int *result) {
+    if (str[0] == '\0') { return 0; }
+    char *endptr;
+    *result = strtol(str, &endptr, 16);
+    
+    // endptr now is how much of the string was parsed
+    // success if whole string was valid number, so endptr == '\0'
+    return *endptr == '\0';
+}
 
 // Arg Parsing stuff
 // options 
@@ -385,6 +422,36 @@ int main(int argc, char *argv[]) {
                 glb_QUAD_ALIGNED = TRUE;
             } else if(0 == strcmp(curr_arg, "--unaligned")) {
                 glb_QUAD_ALIGNED = FALSE;
+            } else if(0 == strcmp(curr_arg, "--dump")) {
+                // Grab two opts
+                if (argc - read_i - 1 < 2) {
+                    fprintf(stderr, "ERROR: --dump requires 2 args\n");
+                    print_usage();
+                    exit(1);
+                }
+
+                // parse args
+                int dump_arg_1 = -1;
+                int dump_arg_2 = -1;
+                if (! parse_hex(argv[read_i+1], &dump_arg_1)) {
+                    fprintf(stderr, "ERROR: --dump: failed to parse hex arg '%s'\n", argv[read_i+1]);
+                    print_usage();
+                    exit(1);
+                }
+                if (! parse_hex(argv[read_i+2], &dump_arg_2)) {
+                    fprintf(stderr, "ERROR: --dump: failed to parse hex arg '%s'\n", argv[read_i+2]);
+                    print_usage();
+                    exit(1);
+                }
+
+                // set the args: base, len
+                glb_debug_opts.dump_base_addr = dump_arg_1;
+                glb_debug_opts.dump_len =       dump_arg_2;
+
+                // advance pointers
+                read_i += 2;
+                shift_amount += 2;
+
             } else {
                 fprintf(stderr, "ERROR: Unknown option '%s'\n", curr_arg);
                 print_usage();
