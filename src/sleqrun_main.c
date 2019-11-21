@@ -170,17 +170,23 @@ int step(struct vm_state *vm) {
         //optional debug printing
         SHOW_VAR_NEG(X,X_ADDR);
         SHOW_VAR_NEG(Y,Y_ADDR);
+        SHOW_VAR_SGN(V, 0x22);
+        SHOW_VAR_SGN(W, 0x23);
+        SHOW_VAR_NEG(P1, 0x24);
+
+        SHOW_VAR(sb,0x38);
+        SHOW_VAR(se,0x39);
 
         //SHOW_VAR(A,ALU_A);
         //SHOW_VAR(B,ALU_B);
-        SHOW_VAR_SGN(P,0x22);
-        SHOW_VAR_SGN(Q,0x23);
+        //SHOW_VAR_SGN(P,0x22);
+        //SHOW_VAR_SGN(Q,0x23);
         //SHOW_VAR_NEG(TCnt,0x2C);
         //SHOW_VAR_NEG(TAB,0x800);
         //SHOW_VAR_NEG(TB2,0x802);
         //SHOW_VAR(Z,0x0);
         //SHOW_VAR(T,0x3);
-        SHOW_VAR_NEG(R,0x27);
+        //SHOW_VAR_NEG(R,0x27);
         //SHOW_VAR_NEG(C,0x28);
         //SHOW_VAR(N,0x29);
 
