@@ -15,8 +15,9 @@
 ## TODO Checklist
 # - Rethink register conventions?
 # - Add parser for labels, simple echo type thing
-# - Port in code from table.hex3
-# - Hook everything together
+# - port in intern_str
+# - port in table
+# - make parse_label: reads_label, interns it, if : writes new, else fetches
 
 
 #niceties for later
@@ -53,18 +54,18 @@
 # ========  REGISTERS AND CO.
 
 #Unsaved registers
-@20 # X Y Z W               (REGS)
-      0 0 0 0     0 0 0 0
+@20 # X Y V W    P1 P2 Q1 Q2 (REGS)
+      0 0 0 0     0  0  0  0
 
 #Saved registers (only modify these if you're top-level, or save them first)
-@28 #
+@28 #                      R2 R
       0  0  0  0     0  0  0  0
 
 @30 #Global vars
 #C(-) N Off _
  0    0  0  0
 
-#R R2  _  _
+#_  _  _  _
  0  0  0  0
 
 @38 #More vars
@@ -115,11 +116,12 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    1  1 D3    #D3:   err: halt1 #unrecognized char
    2  2 D6    #D6:   err: halt2 # @LOC goes backwards
    3  3 D9    #D9:   err: halt3 #seek assert err
+   4  4 DC    #DC:   err: halt4 # ----
 
 
 @F0 #retsub
  ?+7 ?+6    ?    #
-  38 ?+3    ?    #set Q = -R
+  2F ?+3    ?    #set Q = -R
    0   0   FF    #jmp -R  (FF temp, gets Q)
 
 
@@ -200,12 +202,12 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #  as usual: str[0] is len, chars from str[1]..str[len]
 
 # Y is len so far
-# Z(-) is ptr for next char
+# V(-) is ptr for next char
 #
   21  21   ?  #   : Y Y       # Y = 0
-  22  22   ?  #   : Z Z
-  39  22   ?  #   : strtab_end Z
-   4  22   ?  #   : $1 Z      # Z(-) = strtab_end+1
+  22  22   ?  #   : V V
+  39  22   ?  #   : strtab_end V
+   4  22   ?  #   : $1 V      # V(-) = strtab_end+1
    0   0   ?  #   :           # 
    0   0 A40  #   : to loop   # 
 
@@ -229,19 +231,19 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    0  0 B00   #   :   Z Z end        #>7A
 
 @A80 #read_label_continue
-                              # C(-) is the right char, we want to write it to Z
+                              # C(-) is the right char, we want to write it to V
                               # Poke inverts: Poke C, so that in-mem is (+)
-# GADGET: POKE: *(Z-) = -C
- ?+11 ?+10 ? # J J            #  *(Z-) = -C
-   22 ?+D  ? # Z J            #  . 
+# GADGET: POKE: *(V-) = -C
+ ?+11 ?+10 ? # J J            #  *(V-) = -C
+   22 ?+D  ? # V J            #  . 
   ?+C ?+B  ? # K K            #  . 
-   22 ?+8  ? # Z K            #  . 
+   22 ?+8  ? # V K            #  . 
   ?+9 ?+8  ? # L L            #  . 
    22 ?+5  ? # P L            #  . 
     0   0  ? # J:_ K:_        #  . 
    30   0  ? #  X  L:_        #  . 
 
-   4  22   ?  #   : $1 Z      # Advance ptr(-) Z (actually dec)
+   4  22   ?  #   : $1 V      # Advance ptr(-) V (actually dec)
    5  21   ?  #   : $-1 Y     # Inc length (in Y)
 
   30  30   ?  #   : C C       # fetch next char
@@ -254,14 +256,14 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 @B00 #read_label_end
                               # We've read all the characters we need
                               # Now write in length
-  22  22   ?  #   : Z Z          #
-  39  22   ?  #   : strtab_end Z #  Z = (-) strtab_end
+  22  22   ?  #   : V V          #
+  39  22   ?  #   : strtab_end V #  V = (-) strtab_end
 
-# GADGET: POKE: *(Z-) = -Y
- ?+11 ?+10 ? # J J            #  *(Z-) = -Y
-   22 ?+D  ? # Z J            #  . 
+# GADGET: POKE: *(V-) = -Y
+ ?+11 ?+10 ? # J J            #  *(V-) = -Y
+   22 ?+D  ? # V J            #  . 
   ?+C ?+B  ? # K K            #  . 
-   22 ?+8  ? # Z K            #  . 
+   22 ?+8  ? # V K            #  . 
   ?+9 ?+8  ? # L L            #  . 
    22 ?+5  ? # P L            #  . 
     0   0  ? # J:_ K:_        #  . 
@@ -297,8 +299,8 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 @1880 #=== handle_lit_num
 # (encountered hex num in src, parse it to end)
-   38 38 ?  ?+5 38 ?  0 0 800  ?  #JSR read_num  (parse num into N)
-   38 38 ?  ?+5 38 ?  0 0 900  ?  #JSR put_num   (outputs it)
+   2F 2F ?  ?+5 2F ?  0 0 800  ?  #JSR read_num  (parse num into N)
+   2F 2F ?  ?+5 2F ?  0 0 900  ?  #JSR put_num   (outputs it)
    0   0  2000  #   : jmp back to handle_char
 
 
@@ -312,9 +314,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #
   30 30   ?    #   : C C
    8 30   ?    #   : I C            #getchar(), to drop C(-) = '@'
-  38 38   ?    #   : R   R
+  2F 2F   ?    #   : R   R
 
-   38 38 ?  ?+5 38 ?  0 0 800  ?  #JSR read_num  (parse num into N)
+   2F 2F ?  ?+5 2F ?  0 0 800  ?  #JSR read_num  (parse num into N)
 
 #target addr in N (+)
 #If (target < offset), halt2  (seeking backwards is a bug)
@@ -366,7 +368,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 # we got a plus sign,
   30  30   ?   #330: C C
    8  30   ?   # 33: I C #getchar (drop the plus sign)
-   38 38 ?  ?+5 38 ?  0 0 800  ?  #JSR read_num  (parse num into N)
+   2F 2F ?  ?+5 2F ?  0 0 800  ?  #JSR read_num  (parse num into N)
 
    0   0 1A60  # (link here)
 #Now N is the offset, C is next char to be read
@@ -424,7 +426,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   30  30   ?  #   : C C       # 
    8  30   ?  #   : I C       # fetch char
 
-   38 38 ?  ?+5 38 ?  0 0 A00  ?  #JSR read_label
+   2F 2F ?  ?+5 2F ?  0 0 A00  ?  #JSR read_label
 
    0   0  D0  #   : halt0     # exit
    0   0   ?  #   :           # 
@@ -477,7 +479,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 #   _  _  _            # returns to here
 #
 # (JSR oneliner)
-#   38 38 ?  ?+5 38 ?  0 0 sub_routine  ?  #JSR
+#   2F 2F ?  ?+5 2F ?  0 0 sub_routine  ?  #JSR
 #
 # GADGET: retsub  (1-level)
 # ?+7 ?+6    ?
