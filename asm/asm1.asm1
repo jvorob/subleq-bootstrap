@@ -16,6 +16,7 @@
 
 
 ## TODO Checklist
+# - finish refactoring intern_string and tables code to use asm1 syntax
 # - Rethink register conventions?
 # - add overflow check to symbol table (only has x200 words of space)
 # - add exist check to not make duplicate labels
@@ -306,50 +307,33 @@ read_label_loop:  # (Tests if C is a valid label char)
 #
 
 
-# First fetch len of new str, fetch from strtab_end
+    # V holds len of str to intern (at strtab_end[0])
+    T T; strtab_end T; # T pts(-) to len field of new str
+    V V; ?+5 ?+4; T ?+1; 0 V; # GADGET: fetch -*T into V, == len+
 
-# V holds len of str to intern (at strtab_end, double deref)
-   T   T   ?  #   : T T            # 
-  39   T   ?  #   : strtab_end T   # (need to flip, so T is (-)strtab_end
-
-  22  22   ?  #   : V V            # fetch *T into V
- ?+5 ?+4   ?  #   : Q   Q          #
-   T ?+1   ?  #   : T   Q          #
-   0  22   ?  #   : Q:_ V          # V = *(-T), ==len
-
-# Pointer (P1-) starts at strtab_base
-  24  24   ?  #   : P1 P1          # 
-  38  24   ?  #   : strtab_base P1 #
-   Z   Z 1020 #   : jmp loop       # 
+    # Pointer (P1-) starts at strtab_base
+    P1 P1; strtab_base P1;
 
 
+    Z Z 1020 # link to loop
 @1020 intern_string_loop:
 
-#if at end of table (P1 >= strtab_end), exit
-#if strtab_end - P1 <= 0
-#note: P1 is (-), so flip things
-   T   T   ?  #   : T T            # 
-  39   T   ?  #   : strtab_end T   # 
-  24   T   ?  #   : P1- T          #  T = P1 - strtab_end
-   T   Z 1100 #   : T Z end_of_tab #  if strtab_end - P1 <= 0, P1 >= end
-   Z   Z   ?  #   : Z Z            # 
+    #=== Check if at end of table (P1 >= strtab_end), exit
+    # note: both ptrs are negative
+    T T; strtab_end T; P1 T; # T := P1+ - strtab_end+ (both ptrs are negative)
+
+    T Z 1100  Z Z; # if P1 >= strtab_end, jmp end_of_tab
 
 
-# Test next string
-# Get length of string
-   X   X   ?  #   : X X            # fetch *P1 into X
- ?+5 ?+4   ?  #   : Q   Q          #
-  24 ?+1   ?  #   : P1  Q          #
-   0   X   ?  #   : Q:_ X          # X = *(-P1), len+
+    #=== Not at end, test next string
+    
+    # Get next str's len into X and Y
+    X X; ?+5 ?+4; P1 ?+1; 0 X; # GADGET: fetch -*P1 into X, == len+
+    Y Y; X Z; Z Y; Z Z;        # Y := len+
 
-# copy to Y(+) for later
-   Y   Y   ?  #   : Y Y            # 
-   T   T   ?  #   : T T            # 
-   X   T   ?  #   : X T            # 
-   T   Y   ?  #   : T Y            # 
 
-# V (len of str being interned) should == X (len of curr str in strtab loop)
-  22   X  ?+3 #   : V X ?+3        #  X-V <=0
+    # V (len of str being interned) should == X (len of curr str in strtab loop)
+     V X ?+3  # V X ?+3        #  X-V <=0
    Z   Z  ?+3 #   : Z Z ?+3        # 
    X   Z 1080 #   : X Z strcmp     #  V-X <= 0  (so X == V)
 
@@ -358,8 +342,8 @@ read_label_loop:  # (Tests if C is a valid label char)
    Z   Z 1060 #   : Z Z       # 
 @1060 # intern_string_continue
 #advance P1 ahead by len (Y) + 1, (actually sub since pointer -)
-   4  24   ?  #   : $1 P1          # 
-   Y  24   ?  #   : Y  P1          # 
+   4  P1   ?  #   : $1 P1          # 
+   Y  P1   ?  #   : Y  P1          # 
    Z   Z intern_string_loop #   : jmp loop       # 
    
 
@@ -382,7 +366,7 @@ intern_string_strcmp:
    5   X   ?  #   : $-1 X          # X++ (loop 1 time fewer, since loop does 1 extra)
 
 10AC 10AC  ?  #   : cP1 cP1        # 
-  24 10AC  ?  #   :  P1 cP1        # cmpP1+ = (P1)  (loop skips len field)
+  P1 10AC  ?  #   :  P1 cP1        # cmpP1+ = (P1)  (loop skips len field)
 
   39   Z   ?  #   : strtab_end Z   # 
 10AF 10AF  ?  #   : CP2 CP2        # 
@@ -412,7 +396,7 @@ intern_string_strcmp:
 # if we're here, we've successfully matched all the chars
 # return ptr to current string in X-
    X   X   ?  #   : X X            # 
-  24   Z   ?  #   : P1 Z           # 
+  P1   Z   ?  #   : P1 Z           # 
    Z   X   ?  #   : Z X            # 
    Z   Z 0F0  #   : Z Z retsub     # 
 
@@ -454,33 +438,33 @@ intern_string_strcmp:
 # doesn't check for duplicates (TODO maybe eventually)
 # 
 
-  24  24   ?  #   : P1 P1
-  3A  24   ?  #   : TB P1
-  3B  24   ?  #   : TS P1
-  3B  24   ?  #   : TS P1     # P = -(TB + 2*TS)
+  P1  P1   ?  #   : P1 P1
+  3A  P1   ?  #   : TB P1
+  3B  P1   ?  #   : TS P1
+  3B  P1   ?  #   : TS P1     # P = -(TB + 2*TS)
                               # now want to put X at *(P-)
                               
 # P(-) now points to next free slot in the table
 # GADGET: POKE
  ?+11 ?+10 ? # J J            #  *(P1-) = -X
-   24 ?+D  ? # P1 J           #  . 
+   P1 ?+D  ? # P1 J           #  . 
   ?+C ?+B  ? # K K            #  . 
-   24 ?+8  ? # P1 K           #  . 
+   P1 ?+8  ? # P1 K           #  . 
   ?+9 ?+8  ? # L L            #  . 
-   24 ?+5  ? # P1 L           #  . 
+   P1 ?+5  ? # P1 L           #  . 
     0   0  ? # J:_ K:_        #  . 
     X   0  ? #  X  L:_        #  . 
 
 
 #Now Y goes in the next table slot
-    4  24  ? # $1 P1
+    4  P1  ? # $1 P1
 # GADGET: POKE
  ?+11 ?+10 ? # J J            #  *(P1-) = -Y
-   24 ?+D  ? # P J            #  . 
+   P1 ?+D  ? # P J            #  . 
   ?+C ?+B  ? # K K            #  . 
-   24 ?+8  ? # P K            #  . 
+   P1 ?+8  ? # P K            #  . 
   ?+9 ?+8  ? # L L            #  . 
-   24 ?+5  ? # P L            #  . 
+   P1 ?+5  ? # P L            #  . 
     0   0  ? # J:_ K:_        #  . 
     Y   0  ? #  Y  L:_        #  . 
 
@@ -505,8 +489,8 @@ intern_string_strcmp:
 #
   22  22   ?  #   : V V       # 
   3B  22   ?  #   : TS V      # V = -TableSize
-  24  24   ?  #   : P P       # 
-  3A  24   ?  #   : TB P      # P = - TBase
+  P1  P1   ?  #   : P P       # 
+  3A  P1   ?  #   : TB P      # P = - TBase
    Z   Z 1340 #   : z z looptest (jump into test)
 
 # we only want to loop as many times as table_size,
@@ -523,7 +507,7 @@ intern_string_strcmp:
 # table_search_loop  :
    Y   Y   ?  #   : Y Y       # Fetch current key
  ?+5 ?+4   ?  #   : _ _       # 
-  24 ?+1   ?  #   : P _       # 
+  P1 ?+1   ?  #   : P _       # 
    0   Y   ?  #   : _: Y      # Y = -*(-P)
 
 
@@ -535,7 +519,7 @@ intern_string_strcmp:
    Y   Z 1360 #   : Y Z tsrch_found   # if Y-X == 0, table entry found
 
                               # else, continue table walk
-  42  24   ?  #   : $2 P      # P -= 2
+  42  P1   ?  #   : $2 P      # P -= 2
    Z   Z 1340 #   : Z Z looptest       
 
 
@@ -549,11 +533,11 @@ intern_string_strcmp:
 @1360
 #tsearch_found:
                               # P(-) is at matching key
-   4  24   ?  #   : $1 P      # P--  go to val
+   4  P1   ?  #   : $1 P      # P--  go to val
 
    X   X   ?  #   : X X       # fetch P (val)
  ?+5 ?+4   ?  #   : _ _       # 
-  24 ?+1   ?  #   : P _       # 
+  P1 ?+1   ?  #   : P _       # 
    0   X   ?  #   : _: X      # X = -*(-P)
 
    Y   Y   ?  #   : Y Y       # 
@@ -734,29 +718,29 @@ intern_string_strcmp:
   C_  X  ?    #  :  C  X
 
 # Test value by repeatedly subtracting and testing <= 0
-   5  X halt0        #  : $-1 X halt0               # char <= -1, == EOF
-   4  X  ?           #  : $1  X                     #
-  82  X 2100         #  : $20 X skip_char           # <=20, ' ' or \n     #TODO: make 0x21 constant
-  42  X halt1        #  : $2  X halt1               # <=22       invalid char
-  41  X 1800         #  : $1  X comment             # <=23   #
-  4C  X halt1        #  : $C  X halt1               # <=2F
-  4A  X 1880         #  : $A  X read_lit_num        # <=39   0-9
-  41  X halt1        #  : $1  X halt1               # <=3A
-  41  X 1A00         #  : $1  X put_offset(;)       # <=3B   ;
-  43  X halt1        #  : $3  X halt1               # <=3E
-   4  X 1A00         #  : $1  X put_offset (?)      # <=3F   ?
-   4  X 1900         #  : $1  X seek_ahead (@)      # <=40   @
-  46  X 1B00         #  : $6  X parse_label         # <=46   A-F
-  81  X  ?           #  : $10 X                     #
-  44  X 1B00         #  : $4  X parse_label         # <=5A   G-Z
-  44  X halt1        #  : $4  X err                 # <=5E   
-  41  X 1B00         #  : $1  X parse_label         # <=5F   _
-  41  X halt1        #  : $1  X err                 # <=60
-  46  X 1B00         #  : $6  X parse_label         # <=66   a-f
-  81  X  ?           #  : $10 X                     #
-  44  X 1B00         #  : $4  X parse_label         # <=7A   g-z
-                     #
-   Z  Z halt1        #  : Z   Z err                 #  >7A
+   5  X halt0            #  : $-1 X halt0               # char <= -1, == EOF
+   4  X  ?               #  : $1  X                     #
+  82  X 2100             #  : $20 X skip_char           # <=20, ' ' or \n or nonprint
+  42  X halt1            #  : $2  X halt1               # <=22       
+  41  X parse_comment    #  : $1  X comment             # <=23   #
+  4C  X halt1            #  : $C  X halt1               # <=2F
+  4A  X parse_litnum     #  : $A  X read_lit_num        # <=39   0-9
+  41  X halt1            #  : $1  X halt1               # <=3A
+  41  X parse_putoffset  #  : $1  X put_offset(;)       # <=3B   ;
+  43  X halt1            #  : $3  X halt1               # <=3E
+   4  X parse_putoffset  #  : $1  X put_offset (?)      # <=3F   ?
+   4  X parse_seekahead  #  : $1  X seek_ahead (@)      # <=40   @
+  46  X parse_label      #  : $6  X parse_label         # <=46   A-F
+  81  X  ?               #  : $10 X                     #
+  44  X parse_label      #  : $4  X parse_label         # <=5A   G-Z
+  44  X halt1            #  : $4  X err                 # <=5E   
+  41  X parse_label      #  : $1  X parse_label         # <=5F   _
+  41  X halt1            #  : $1  X err                 # <=60
+  46  X parse_label      #  : $6  X parse_label         # <=66   a-f
+  81  X  ?               #  : $10 X                     #
+  44  X parse_label      #  : $4  X parse_label         # <=7A   g-z
+                         #
+   Z  Z halt1            #  : Z   Z err                 #  >7A
 
 
 @2100 # skip_char:
