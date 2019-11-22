@@ -156,9 +156,10 @@ halt7: 7 7 halt7
    N  N   ?    #   : N N (clear N on first entry)
 
 @803 read_num_continue:
-# number so far stored in N, switch on next char
-   X  X   ?    #   : X X
-  C_  X   ?    #   : C X  #X has +char
+# number so far stored in N
+
+X X; C_ X; # X+ := next char
+# keep parsing: switch stmt: of next input char
   82  X   ?    #   : $20 X
   4F  X retsub #   :  $F X return     #<=2F
   4A  X 833    #   :  $A X num_dig    #<=39, '0'-'9'
@@ -169,28 +170,26 @@ halt7: 7 7 halt7
   46  X 830    #   :  $6 X num_alpha  #<=66  'a'-'f'
    Z  Z retsub #   :   Z Z return     #>66
 
-@830 #num_alpha
-  56  X   ?    #   : $-6 X   #if alpha, value is X + F
-@833 #num_dig
-  59  X   ?    #   : $-9 X   #if digit, value is X + 9
+#if alpha, value is X + F
+#if digit, value is X + 9
+@830 num_alpha:  
+    56 X;  # ($-6)   X += 6   
+@833 num_digit:
+    59 X;  # ($-9)   X += 9  
 
 # now X is value(+) of this digit
-
-# Shift N<<=4
- alu_A alu_A ? 
-     N alu_A ? # A := N
- alu_B alu_B ?
-    54 alu_B ? # B := 4  (sub $-4)
-     N N ?
-alu_ls N ? # N := N << 4
+# Shift N up 1 hex digit (4 bits)
+alu_A alu_A;   N alu_A; # A := N
+alu_B alu_B;  54 alu_B; # B := 4  (sub $-4)
+N N ?  alu_ls N ?      # N := N << 4
 # (negativeness wouldn't matter if it wasn't overflowing anyway)
 
-X Z ?  
-Z N ?  # add X
+# Add in X as bottom digit
+X Z; Z N; #N += X
 
+# Continue
 C_ C_ ?  
 IN C_ ? # getChar()
-
 Z Z read_num_continue # keep looping
 
 
@@ -198,22 +197,17 @@ Z Z read_num_continue # keep looping
 @900 put_num: #=====
 #   print out contents of N, little-endian,
 #   return to R
-  0A 0A   ?     #   : A   A
-   N  Z   ?     #   : N   Z
-   Z 0A   ?     #   : Z   A
-   Z  Z   ?     #   : Z   Z  #A=+N
-  0B 0B   ?     #   : B   B
-  9F 0B   ?     #   : $-F0 B
-  5F 0B   ?     #   : $-F B #B=FF
-  10  Z   ?     #   : AND Z
-   Z  9   ?     #   : Z   O   #putchar(N & FF)
-   Z  Z   ?     #   : Z   Z
-  0B 0B   ?     #   : B   B
-  58 0B   ?     #   : $-8 B #B=8
-  15  Z   ?     #   : RS  Z
-   Z  9   ?     #   : Z   O   #putchar(N >> 8)
-   4 32   ?     #   : $1 Off   #inc offset
-   Z  Z 0F0     #   : retsub
+
+alu_A alu_A;   N Z; Z alu_A; Z Z;  # alu_A := N 
+alu_B alu_B;   9F alu_B; 5F alu_B; # alu_B := FF
+alu_and Z; Z OUT; Z Z;             # putchar(N & FF)
+
+alu_B alu_B;  58 alu_B;  # alu_B := 8
+alu_rs Z; Z OUT; Z Z;    # putchar(N >> 8)
+
+4 Off_; #advance offset(-), so dec
+Z Z retsub
+
 
 
 @A00 read_label:  #=====
@@ -222,82 +216,61 @@ Z Z read_num_continue # keep looping
 #  as usual: str[0] is len, chars from str[1]..str[len]
 
 # Y is len so far
-# V(-) is ptr for next char
-#
-   Y   Y   ?  #   : Y Y       # Y = 0
-  22  22   ?  #   : V V
-  39  22   ?  #   : strtab_end V
-   4  22   ?  #   : $1 V      # V(-) = strtab_end+1
-   Z   Z   ?  #   :           # 
-   Z   Z 0A40 #   : to loop   # 
+# V(-) is ptr to place next char at
 
-@A40 read_label_loop:  # (Tests if C is a valid label char)
-                              
-   X  X   ?   #   : X X
-  C_  X   ?   #   : C X              #X has +char
-  82  X   ?   #   : $20 X
-  4C  X 0B00  #   :  $C X end        #<=2C  
-  43  X 0B00  #   :  $3 X end        #<=2F
-  4A  X 0A80  #   :  $A X continue   #<=39, '0'-'9'
-  47  X 0B00  #   :  $7 X end        #<=40
-#@A52
-  81  X   ?   #   : $10 X
-  4A  X 0A80  #   :  $A X continue   #<=5A  'A'-'Z'
-  44  X 0B00  #   :  $4 X end        #<=5E
-  41  X 0A80  #   :  $1 X continue   #<=5F  '_'
-  41  X 0B00  #   :  $1 X end        #<=60
-  81  X   ?   #   : $10 X
-  4A  X 0A80  #   :  $A X continue   #<=7A  'a'-'z'
-   Z  Z 0B00  #   :   Z Z end        #>7A
+  Y Y; # clr Y
+  V V; strtab_end V; 4 V; # V = -(strtab_end + 1), leave 1 word for len field
+
+read_label_loop:  # (Tests if C is a valid label char)
+    X X; C_ X; # X := + next char
+
+    # switch(X) 
+    82  X   ?   #   : $20 X
+    4C  X 0B00  #   :  $C X end        #<=2C  
+    43  X 0B00  #   :  $3 X end        #<=2F
+    4A  X 0A80  #   :  $A X continue   #<=39, '0'-'9'
+    47  X 0B00  #   :  $7 X end        #<=40
+    81  X   ?   #   : $10 X
+    4A  X 0A80  #   :  $A X continue   #<=5A  'A'-'Z'
+    44  X 0B00  #   :  $4 X end        #<=5E
+    41  X 0A80  #   :  $1 X continue   #<=5F  '_'
+    41  X 0B00  #   :  $1 X end        #<=60
+    81  X   ?   #   : $10 X
+    4A  X 0A80  #   :  $A X continue   #<=7A  'a'-'z'
+    Z   Z 0B00  #   :   Z Z end        #>7A
 
 @A80 read_label_continue:
-                              # C(-) is the right char, we want to write it to V
-                              # Poke inverts: Poke C, so that in-mem is (+)
-# GADGET: POKE: *(V-) = -C
- ?+11 ?+10 ? # J J            #  *(V-) = -C
-   22 ?+D  ? # V J            #  . 
-  ?+C ?+B  ? # K K            #  . 
-   22 ?+8  ? # V K            #  . 
-  ?+9 ?+8  ? # L L            #  . 
-   22 ?+5  ? # P L            #  . 
-    0   0  ? # J:_ K:_        #  . 
-   C_   0  ? # C_  L:_        #  . 
+    # C(-) is the right char, we want to write it to V
+    # Poke inverts: Poke C, so that in-mem is (+)
+    
+    # GADGET: POKE: *(V-) = -C
+    ?+11 ?+10;  V ?+D;  # set J
+    ?+C  ?+B ;  V ?+8;  # set K
+    ?+9  ?+8 ;  V ?+5;  # set L
+    0    0   ; C_   0;  # J K; (_) L
 
-   4  22   ?  #   : $1 V      # Advance ptr(-) V (actually dec)
-   5   Y   ?  #   : $-1 Y     # Inc length (in Y)
+    4 V; # Advance ptr(-) V (actually dec)
+    5 Y; # Inc length
 
-  C_  C_   ?  #   : C C       # fetch next char
-   8  C_   ?  #   : I C       # 
-
-   Z   Z read_label_loop #   : Z Z loop  # loop
+    # advance to next char
+    C_ C_; IN C_;
+    Z Z read_label_loop 
 
 
 @B00 read_label_end: 
-                              # We've read all the characters we need
-                              # Now write in length
-  22  22   ?  #   : V V          #
-  39  22   ?  #   : strtab_end V #  V = (-) strtab_end
+    # We've read all the characters we need
+    # Now write the length
+    V V; strtab_end V; # get ptr(-) to start of string
 
-# GADGET: POKE: *(V-) = -Y
- ?+11 ?+10 ? # J J            #  *(V-) = -Y
-   22 ?+D  ? # V J            #  . 
-  ?+C ?+B  ? # K K            #  . 
-   22 ?+8  ? # V K            #  . 
-  ?+9 ?+8  ? # L L            #  . 
-   22 ?+5  ? # P L            #  . 
-    0   0  ? # J:_ K:_        #  . 
-    Y   0  ? #  Y  L:_        #  . 
+    # GADGET: POKE: *(V-) = -Y
+    ?+11 ?+10;  V ?+D;  # set J
+    ?+C  ?+B ;  V ?+8;  # set K
+    ?+9  ?+8 ;  V ?+5;  # set L
+    0    0   ;  Y   0;  # J K; (_) L
+
+    Z Z retsub
 
 
-# We're done? return
-   Z   Z  0F0  #   : retsub    # 
-
-
-
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
 
 
 @0E00 #E00-FFF is the symbol table
@@ -896,12 +869,8 @@ intern_string_strcmp:
 #   _   X   ?  #   : Q:_ X     # X -= *(-P)
 #
 #
-# GADGET: POKE: *(P-) = -X
-# ?+11 ?+10 ? # J J            #  *(P-) = -X
-#   22 ?+D  ? # P J            #  . 
-#  ?+C ?+B  ? # K K            #  . 
-#   22 ?+8  ? # P K            #  . 
-#  ?+9 ?+8  ? # L L            #  . 
-#   22 ?+5  ? # P L            #  . 
-#    0   0  ? # J:_ K:_        #  . 
-#    X   0  ? #  X  L:_        #  . 
+# # GADGET: POKE: *(V-) = -C
+# ?+11 ?+10;  V ?+D;  # set J
+# ?+C  ?+B ;  V ?+8;  # set K
+# ?+9  ?+8 ;  V ?+5;  # set L
+# 0    0   ; C_   0;  # J K; (_) L
