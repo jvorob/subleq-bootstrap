@@ -79,12 +79,12 @@ P1:0 P2:0 Q1:0 Q2:0
       0  0  0  0     0  0  0   @2F R: 0
 
 @30 #Global vars (_ indicates it's negated)
-C_:0  N:0  Off_:0 
+C_:0  N:0  offset_:0 
 
 #C is last char read (-)   (treated as first char of input)
 #N is where read_num puts its result (+)
 #R is retval: address to return to
-#Off is current offset in the binary (-)
+#offset is current offset in the binary (-)
 
 
 @38 #More vars
@@ -205,7 +205,7 @@ alu_and Z; Z OUT; Z Z;             # putchar(N & FF)
 alu_B alu_B;  58 alu_B;  # alu_B := 8
 alu_rs Z; Z OUT; Z Z;    # putchar(N >> 8)
 
-4 Off_; #advance offset(-), so dec
+4 offset_; #advance offset(-), so dec
 Z Z retsub
 
 
@@ -576,15 +576,25 @@ intern_string_strcmp:
 @1800 parse_comment: #====
 # keep looping until \n, then go to handle_char
 # Now optimized for common case, if char>'a', runs in 3 steps
-  C_   C_    ?  #   C   C
-  5B   C_    ?  #   $-B C
-   8   C_  1800 #   I   C comment2   #C = $B - getChar(); if C<=0, then char >$a
-  4B   C_    ?  #   $B  C
-   X    X    ?  #   X   X
-  C_    X    ?  #   C   X  #X gets +char
-   5    X  0D0  #  $-1  X halt0  #if X+1 LEQZ, X<0, EOF so halt
-  4A    X  1800 #  $A   X comment2  #subtract 1 + 9.   If LEQ, X < '\n', loop
-   Z    Z  2000 #   Z   Z handle_char    #X is definitely \n, end comment
+    # Drop char ('#')
+    C_   C_    ?  #   C   C
+
+    # If >$A (\n), skip
+    5B C_  ?  #   $-B C
+    IN C_  parse_comment # C = $B - getChar(); if C<=0, then char >$a
+
+    # if here, char gotten is >$A ('\n')
+    4B  C_;    # undo shift to char
+    X X; C_ X; # X := +char
+
+    # if < 0, EOF
+    5 X halt0
+
+    # if < $A  ('\n') ignore
+    4A    X  parse_comment #  $A   X comment2  #subtract 1 + 9.   If LEQ, X < '\n', loop
+
+    # char == '\n', end of comment
+    Z Z 2000 #handle_char
 
 
 
@@ -602,39 +612,33 @@ intern_string_strcmp:
 # Next must be number, parse it
 # Skip ahead to that offset in the file, outputting '000D'
 # If seeking backwards, error out
-#
-  C_ C_   ?    #   : C C
-   8 C_   ?    #   : I C            #getchar(), to drop C(-) = '@'
-  R R   ?    #   : R   R
 
-   R R ?  ?+5 R ?  Z Z read_num  ?  #JSR read_num  (parse num into N)
+    C_ C_; IN C_; #getchar to drop C = '@'
 
-#target addr in N (+)
-#If (target < offset), halt2  (seeking backwards is a bug)
-   X  X   ?    #   : X X
-  32  X   ?    #   : Off X      # Off is (-)
-   N  X ?+3    #   : N   X ?+3  # X = Off - N
-   Z  Z 0D6    #   : Z Z halt2       #if Off > N, halt2    (seeking backwards is an err)
+    R R; ?+5 R; Z Z read_num   ? #JSR (parse num into N)
 
-# Loop X times, outputing 000D. (If X==0, jumps to end and breaks)
-   Z  Z 1949   #   : Z Z seek_while  (jump into loop)
-         @1940 #seek_loop: (output a halt 000D) Runs as long as X<0
-  5D  9   ?    #   : $-D O
-   0  9   ?    #   : $0  O             #putword(000D)
-   4 32   ?    #   : $1 Off            #inc offset, (not strictly necessary here)
-         @1949 #seek_while:
-   5  X 1940   #   : $-1 X seek_loop   #loop while ++X LEQZ, or while X++ LTZ
+    #target addr in N (+)
+    #If (target < offset), halt2  (seeking backwards is a bug)
+    X X; offset_ X; # X+ := offset
+    N X ?+3      # if offset <= N, continue
+    Z Z halt2    # else fail (seeking backwards is an err)
 
-# Assert Off == N
-   3  3   ?    #   : T T
-  32  3   ?    #   : Off T
-   N  3 ?+3    #   : N T ?+3    # T must be <=0
-   Z  Z 0D9    #   : Z Z halt3  # else
-   3  Z ?+3    #   : T Z ?+3    # T must be >=0
-   Z  Z 0D9    #   : Z Z halt3
+    # Loop X times, outputing 000D. (If X==0, jumps to end and breaks)
+    
+    Z Z 1949   #seek_looptest  (jump into loop test)
 
-# Clear N, jump to main loop
-   N  N 2000   #   : N N handle_char
+@1940 seek_loop: #(output a halt 000D) Runs as long as X<0
+    5D OUT; Z OUT; # putword(000D)
+    4  offset_;    # advance offset- (actually dec)
+@1949 seek_looptest:
+    5 X seek_loop  # loop while ++X LEQZ, or while X++ LTZ
+
+    # Assert offset == N
+    T T; offset_ T; # T := + offset
+    N T ?+3   Z Z halt3 # if N >= offset continue else halt
+    T Z ?+3   Z Z halt3 # if N <= offset continue else halt
+
+    Z Z 2000 # return to main loop
 
 
 
@@ -643,33 +647,31 @@ intern_string_strcmp:
 # handles '?'
 # ? on its own puts address of next byte
 # '?+NUM' puts next byte + NUM
-   N   N   ?   #   : N N # clear N, will set to nonzero if +offset
-  C_  C_   ?   #   : C C
-   8  C_   ?   #   : I C # getchar (after ?)
+    N N; # N is the offset in case we get ?+XX, by default is 0
+    C_ C_; IN C_; # getchar, (drops the '?')
 
-#test if next char == "+"
-   X   X   ?   #   : X X
-  C_   X   ?   #   : C X  #X = +char (-C)
-  82   X   ?   #   : $20 X
-  4A   X 1A60  #   : $A X put_offset_finish   #X <=2A
-   4   X 1A40  #   : $1 X put_offset_plus     #X <=2B  '+'
-   Z   Z 1A60  #   : Z Z  put_offset_finish   #X  >2B
+    #test if next char == "+"
+    X X; C_ X;
+    # switch (X) {
+    82   X   ?   #   : $20 X
+    4A   X 1A60  #   : $A X put_offset_finish   #X <=2A
+     4   X 1A40  #   : $1 X put_offset_plus     #X <=2B  '+'
+     Z   Z 1A60  #   : Z Z  put_offset_finish   #X  >2B
 
-@1A40 #put_offset_plus:
-# we got a plus sign,
-  C_  C_   ?   #330: C C
-   8  C_   ?   # 33: I C #getchar (drop the plus sign)
-   R R ?  ?+5 R ?  Z Z read_num  ?  #JSR read_num  (parse num into N)
+@1A40 put_offset_plus: # we have '?+...'
+    C_ C_; IN C_; #getchar (drop the plus sign)
+    R R; ?+5 R; Z Z read_num   ? #JSR (parses number into N)
 
-   Z   Z 1A60  # (link here)
-#Now N is the offset, C is next char to be read
-#Ouput offset+1 (next loc), +N if N is nonzero
+    Z Z 1A60
 @1A60 #put_offset_finish:
-  32   N   ?   #   : Off N  #N += +offset (-O)
-   5   N   ?   #   : $-1 N  # Will output curr offset + 1 + N
+    #Now N is the delta, C is next char to be read
+    #Ouput offset + 1(next loc), + delta (N)
+    
+    offset_ N; # N += offset(+)
+    5 N; # N++
 
-   R R ?  ?+5 R ?  Z Z put_num  ?  #JSR put_num  (outputs N)
-   Z   Z 2000  #   : jmp handle_char
+    R R; ?+5 R; Z Z put_num   ? #JSR (outputs N: offset + 1 + delta)
+    Z Z 2000 # return to main loop
 
 
 @1B00 parse_label: #=====
@@ -678,74 +680,45 @@ intern_string_strcmp:
 # (depending on 'label' or 'label:')
 # TEMP: for now it'll just echo the label I guess?
 
-# read a label
-  R R ?  ?+5 R ?  Z Z read_label  ? #JSR
+    R R; ?+5 R; Z Z read_label   ? #JSR
+    R R; ?+5 R; Z Z intern_string   ?  #JSR
+    # X- now points to interned string
 
-# intern it
-  R R ?  ?+5 R ?  Z Z intern_string ?  #JSR
-# X- now points to interned string
+    # check if label followed by colon
 
+    Y Y; C_ Y; 83 Y; 4A Y; # Y := char - $3A    (':' = $3A)
+    Z Y ?+3  Z Z 1B80 # if Y <= 0 continue; else not colon
+    Z Z;
+    Y Z ?+3  Z Z 1B80 # if Y >= 0 continue; else not colon
 
-# check for colon:
-# if colon, set a new label (set offset in table)
-# if no colon, output label offset (fetch offset from table)
+#== Got 'label:' with colon, put new label mapping
+    C_ C_; IN C_; # getchar (drop the colon)
 
-   Z   Z   ?   #   :           # check char in C
-   Y   Y   ?   #   : Y Y       # if ':' (3A)
-  C_   Y   ?   #   : C Y       # 
-  83   Y   ?   #   : $30 Y     # 
-  4A   Y   ?   #   : $A Y      # 
+    # need to table_insert (X, Y), 
+    # X is string pointer (already there from intern_string)
+    # Y needs to be current offset(-) in binary
+    offset_ Z; Z Y; #Y = -offset
+    R R; ?+5 R; Z Z table_insert   ? #JSR table_insert(string, offset(-))
 
-   Z   Z   ?   #   :           #
-
-#(test Y - ':' == 0)
-   T   T   ?   #   : T T       #
-   T   Y  ?+3  #   : T Y       # (Y == 0)
-   Z   Z  1B80 #   : else jmp nocolon
-   Y   T  ?+3  #   : Y T       # (Y == 0)
-   Z   Z  1B80 #   : else jmp nocolon 
-
-#Got 'label:'
-  C_  C_   ?   #   : C C
-   8  C_   ?   #   : I C       #getchar (drop the colon)
-
-
-#==  put new label mapping
-# table_insert (X, Y), 
-# X is string pointer (from intern_string)
-# Y needs to be current offset(-)
-  32   Z   ?   #   : Off Z     #
-   Z   Y   ?   #   : Z Y       # Y- = Off- (Z will be cleared in jsr)
-
-  R R ?  ?+5 R ?  Z Z table_insert ? #JSR
-#done, return
-   Z   Z 2000  #   : jmp handle_char
+    Z Z 2000  # return to main loop
 
 
 @1B80 #parse_label_nocolon
-#query table, either error out or put to outstream
+    # got label with no colon, need to look up the string
+    # query table, either error out or put to outstream
+    
+    # X(-) pts to interned str, look up the string in table
+    R R; ?+5 R; Z Z table_lookup   ?  #JSR
+    # Now X(-) holds label location
 
-# X- pts to interned str, lookup in table
-  R R ?  ?+5 R ?  Z Z table_lookup ?  #JSR
+    Z Y halt4  # if returns err (y==0), invalid label
 
-# Y = 0 if err, 1 if success
-   Z   Y 0DC  #   : Z Y halt4 # if err (y==0), invalid label
+    # put label location+ to outstream
+    N N; X N; # N := loc+
+    R R; ?+5 R; Z Z put_num   ?  #JSR put_num(N == loc+) 
 
-# X holds value which is offset-
-# put offset+ to outstream
-   N   N   ?  #   : N N       #
-   X   N   ?  #   : X N       #
-  R R ?  ?+5 R ?  Z Z put_num ?  #JSR put_num(X)  //put num outputs val of N+
+    Z Z 2000  # return to main loop
 
-   Z   Z 2000  #   : jmp handle_char
-
-   Z   Z   ?  #   :           #
-   Z   Z   ?  #   :           #
-   Z   Z   ?  #   :           #
-   Z   Z   ?  #   :           #
-   Z   Z   ?  #   :           #
-   Z   Z   ?  #   :           #
-   Z   Z   ?  #   :           #
 
 
 # =============================== MAIN LOOP
@@ -785,12 +758,12 @@ intern_string_strcmp:
                      #
    Z  Z halt1        #  : Z   Z err                 #  >7A
 
+
 @2100 # skip_char:
 # Fetches the next char into C(-), dropping what had been there
-# Jumps to handle_char. Also works as entrypoint
-  C_ C_  ?    #  : C C
-   8 C_  ?    #  : I C     #C(-) := getChar()
-   Z  Z 2000  #  : jmp handle_char
+# Also works as entrypoint (init C with the first char)
+    C_ C_; IN C_; #getchar
+    Z Z 2000 
 
 
 @2200 # custom_test:
@@ -810,18 +783,6 @@ intern_string_strcmp:
 
 #...
 #@3000 is strtab, grows upward
-
-
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
-   Z   Z   ?  #   :           # 
 
 
 
@@ -854,7 +815,7 @@ intern_string_strcmp:
 #   _  _  _            # returns to here
 #
 # (JSR oneliner)
-#   R R ? ?+5 R ?  Z Z sub_routine  ?  #JSR
+# R R; ?+5 R; Z Z subroutine   ? #JSR
 #
 # GADGET: retsub  (1-level)
 # ?+7 ?+6    ?
