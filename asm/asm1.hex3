@@ -9,7 +9,8 @@
 # Also does:
 #  label:    #create label here
 #  label     #insert value of label
-#  # labels must start with [g-zG-Z_], continue with [a-zA-Z_0-9]
+#  # labels must start with [a-zA-Z_], continue with [a-zA-Z_0-9]
+#  # new rule: literal numbers must start with [0-9], constants like A should be written 0A
 
 
 ## TODO Checklist
@@ -38,9 +39,9 @@
 # =========  HEADER
 
 @0 # Z T entry       P1  M1  0 0
-     0 0 2100  0      1 FFFF 0 0
+     0 0 2100  0      1 0FFFF 0 0
 @8 # I O A B     _ 0xD:halt0
-     0 0 0 0     0 0 0 D
+     0 0 0 0     0 0 0 0D
 @10 #ALU
 # & | ^ _   << >> _ _
   0 0 0 0   0  0  0 0
@@ -67,9 +68,9 @@
 
 @38 #More vars
 #strtab_base strtab_end   (next new string in strtab goes at strtab_end)
-    E00      E00
+    0E00      0E00
 #  table_base table_size 
-@3A   F00     0
+@3A   0F00     0
 
 
 
@@ -86,38 +87,38 @@
 
 @40
 #4_: 0-F
-0 1 2 3 4 5 6 7 8 9 A B C D E F
+0 1 2 3 4 5 6 7 8 9 0A 0B 0C 0D 0E 0F
 
 @50
 #5_: -0 - -F
-0000 FFFF FFFE FFFD FFFC FFFB FFFA FFF9
-FFF8 FFF7 FFF6 FFF5 FFF4 FFF3 FFF2 FFF1
+00000 0FFFF 0FFFE 0FFFD 0FFFC 0FFFB 0FFFA 0FFF9
+0FFF8 0FFF7 0FFF6 0FFF5 0FFF4 0FFF3 0FFF2 0FFF1
 
 @80
 #8_: 00-F0 (tens)
-0 10 20 30 40 50 60 70 80 90 A0 B0 C0 D0 E0 F0
+0 10 20 30 40 50 60 70 80 90 0A0 0B0 0C0 0D0 0E0 0F0
 
 @90
 #9_: (-00) - (-F0)
-0000 FFF0 FFE0 FFD0 FFC0 FFB0 FFA0 FF90
-FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
+00000 0FFF0 0FFE0 0FFD0 0FFC0 0FFB0 0FFA0 0FF90
+0FF80 0FF70 0FF60 0FF50 0FF40 0FF30 0FF20 0FF10
 
 
 
 # ======== Misc jump spots
 
-@D0 #error_page
-   0  0 D0    #D0:   halt0 #success
-   1  1 D3    #D3:   err: halt1 #unrecognized char
-   2  2 D6    #D6:   err: halt2 # @LOC goes backwards
-   3  3 D9    #D9:   err: halt3 #seek assert err
-   4  4 DC    #DC:   err: halt4 # uninitialized label
+@0D0 #error_page
+   0  0 0D0    #D0:   halt0 #success
+   1  1 0D3    #D3:   err: halt1 #unrecognized char
+   2  2 0D6    #D6:   err: halt2 # @LOC goes backwards
+   3  3 0D9    #D9:   err: halt3 #seek assert err
+   4  4 0DC    #DC:   err: halt4 # uninitialized label
 
 
-@F0 #retsub
+@0F0 #retsub
  ?+7 ?+6    ?    #
   2F ?+3    ?    #set Q = -R
-   0   0   FF    #jmp -R  (FF temp, gets Q)
+   0   0  0FF    #jmp -R  (FF temp, gets Q)
 
 
 
@@ -136,14 +137,14 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   20 20   ?    #   : X X
   30 20   ?    #   : C X  #X has +char
   82 20   ?    #   : $20 X
-  4F 20  F0    #   :  $F X return     #<=2F
+  4F 20 0F0    #   :  $F X return     #<=2F
   4A 20 833    #   :  $A X num_dig    #<=39, '0'-'9'
-  47 20  F0    #   :  $7 X return     #<=40
+  47 20 0F0    #   :  $7 X return     #<=40
   46 20 830    #   :  $6 X num_alpha  #<=46  'A'-'F'
   81 20   ?    #   : $10 X
-  4A 20  F0    #   :  $A X return     #<=60
+  4A 20 0F0    #   :  $A X return     #<=60
   46 20 830    #   :  $6 X num_alpha  #<=66  'a'-'f'
-   0  0  F0    #   :   Z Z return     #>66
+   0  0 0F0    #   :   Z Z return     #>66
 
 @830 #num_alpha
   56 20   ?    #   : $-6 X   #if alpha, value is X + F
@@ -152,10 +153,10 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 # now X is value(+) of this digit
 # Shift N<<=4
-   A  A   ?    #   : A A
-  31  A   ?    #   : N A
-   B  B   ?    #   : B B
-  54  B   ?    #   : $-4 B
+  0A 0A   ?    #   : A A
+  31 0A   ?    #   : N A
+  0B 0B   ?    #   : B B
+  54 0B   ?    #   : $-4 B
   31 31   ?    #   : N N
   14 31   ?    #   : LS N  #N << 4 (negativeness wouldn't matter if it wasn't overflowing anyway)
 
@@ -173,22 +174,22 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 @900 #=== put_num
 #   print out contents of N, little-endian,
 #   return to R
-   A  A   ?     #   : A   A
+  0A 0A   ?     #   : A   A
   31  0   ?     #   : N   Z
-   0  A   ?     #   : Z   A
+   0 0A   ?     #   : Z   A
    0  0   ?     #   : Z   Z  #A=+N
-   B  B   ?     #   : B   B
-  9F  B   ?     #   : $-F0 B
-  5F  B   ?     #   : $-F B #B=FF
+  0B 0B   ?     #   : B   B
+  9F 0B   ?     #   : $-F0 B
+  5F 0B   ?     #   : $-F B #B=FF
   10  0   ?     #   : AND Z
    0  9   ?     #   : Z   O   #putchar(N & FF)
    0  0   ?     #   : Z   Z
-   B  B   ?     #   : B   B
-  58  B   ?     #   : $-8 B #B=8
+  0B 0B   ?     #   : B   B
+  58 0B   ?     #   : $-8 B #B=8
   15  0   ?     #   : RS  Z
    0  9   ?     #   : Z   O   #putchar(N >> 8)
    4 32   ?     #   : $1 Off   #inc offset
-   0  0  F0     #   : retsub
+   0  0 0F0     #   : retsub
 
 
 @A00 #== read_label
@@ -204,26 +205,26 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   39  22   ?  #   : strtab_end V
    4  22   ?  #   : $1 V      # V(-) = strtab_end+1
    0   0   ?  #   :           # 
-   0   0 A40  #   : to loop   # 
+   0   0 0A40 #   : to loop   # 
 
 @A40 #read_label_loop:   (Tests if C is a valid label char)
                               
   20 20   ?   #   : X X
   30 20   ?   #   : C X              #X has +char
   82 20   ?   #   : $20 X
-  4C 20 B00   #   :  $C X end        #<=2C  
-  43 20 B00   #   :  $3 X end        #<=2F
-  4A 20 A80   #   :  $A X continue   #<=39, '0'-'9'
-  47 20 B00   #   :  $7 X end        #<=40
+  4C 20 0B00  #   :  $C X end        #<=2C  
+  43 20 0B00  #   :  $3 X end        #<=2F
+  4A 20 0A80  #   :  $A X continue   #<=39, '0'-'9'
+  47 20 0B00  #   :  $7 X end        #<=40
 #@A52
   81 20   ?   #   : $10 X
-  4A 20 A80   #   :  $A X continue   #<=5A  'A'-'Z'
-  44 20 B00   #   :  $4 X end        #<=5E
-  41 20 A80   #   :  $1 X continue   #<=5F  '_'
-  41 20 B00   #   :  $1 X end        #<=60
+  4A 20 0A80  #   :  $A X continue   #<=5A  'A'-'Z'
+  44 20 0B00  #   :  $4 X end        #<=5E
+  41 20 0A80  #   :  $1 X continue   #<=5F  '_'
+  41 20 0B00  #   :  $1 X end        #<=60
   81 20   ?   #   : $10 X
-  4A 20 A80   #   :  $A X continue   #<=7A  'a'-'z'
-   0  0 B00   #   :   Z Z end        #>7A
+  4A 20 0A80  #   :  $A X continue   #<=7A  'a'-'z'
+   0  0 0B00  #   :   Z Z end        #>7A
 
 @A80 #read_label_continue
                               # C(-) is the right char, we want to write it to V
@@ -244,7 +245,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   30  30   ?  #   : C C       # fetch next char
    8  30   ?  #   : I C       # 
 
-   0   0 A40  #   : Z Z loop  # loop
+   0   0 0A40 #   : Z Z loop  # loop
    0   0   ?  #   :           # 
 
 
@@ -266,7 +267,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 
 # We're done? return
-   0   0  F0  #   : retsub    # 
+   0   0  0F0  #   : retsub    # 
 
 
 
@@ -413,7 +414,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   20  20   ?  #   : X X            # 
   24   0   ?  #   : P1 Z           # 
    0  20   ?  #   : Z X            # 
-   0   0  F0  #   : Z Z retsub     # 
+   0   0 0F0  #   : Z Z retsub     # 
 
    0   0   ?  #   :                # 
    0   0   ?  #   :                # 
@@ -438,7 +439,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    4   1   ?  #   : $1 T           # 
    1  39   ?  #   : T strtab_end   # strtab_end += V + 1
 
-   0   0  F0  #   : retsub      
+   0   0 0F0  #   : retsub      
 
 
    0   0   ?  #   :                # 
@@ -485,7 +486,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 #Done, inc number of entries
    5  3B   ?  #   : $-1 TS    # Inc TS
-   0   0  F0  #   : jmp retsub
+   0   0 0F0  #   : jmp retsub
 
    0   0   ?  #   :                # 
    0   0   ?  #   :                # 
@@ -543,7 +544,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
 #tsearch_notfound: (we got to end of table with no match)
   21  21   ?  #   : Y Y       # Y = 0 (not found)
-  20  20  F0  #   : X X       # X = 0 (null), retsub
+  20  20 0F0  #   : X X       # X = 0 (null), retsub
 
 @1360
 #tsearch_found:
@@ -557,7 +558,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 
   21  21   ?  #   : Y Y       # 
    5  21   ?  #   : $-1 Y     # Y = 1 (success)
-   0   0  F0  #   : jmp retsub# return
+   0   0 0F0  #   : jmp retsub# return
 
 
    0   0   ?  #   :           # 
@@ -581,7 +582,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   4B   30    ?  #   $B  C
   20   20    ?  #   X   X
   30   20    ?  #   C   X  #X gets +char
-   5   20   D0  #  $-1  X halt0  #if X+1 LEQZ, X<0, EOF so halt
+   5   20  0D0  #  $-1  X halt0  #if X+1 LEQZ, X<0, EOF so halt
   4A   20  1800 #  $A   X comment2  #subtract 1 + 9.   If LEQ, X < '\n', loop
    0    0  2000 #   Z   Z handle_char    #X is definitely \n, end comment
 
@@ -613,7 +614,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   20 20   ?    #   : X X
   32 20   ?    #   : Off X      # Off is (-)
   31 20 ?+3    #   : N   X ?+3  # X = Off - N
-   0  0  D6    #   : Z Z halt2       #if Off > N, halt2    (seeking backwards is an err)
+   0  0 0D6    #   : Z Z halt2       #if Off > N, halt2    (seeking backwards is an err)
 
 # Loop X times, outputing 000D. (If X==0, jumps to end and breaks)
    0  0 1949   #   : Z Z seek_while  (jump into loop)
@@ -628,9 +629,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
    3  3   ?    #   : T T
   32  3   ?    #   : Off T
   31  3 ?+3    #   : N T ?+3    # T must be <=0
-   0  0  D9    #   : Z Z halt3  # else
+   0  0 0D9    #   : Z Z halt3  # else
    3  0 ?+3    #   : T Z ?+3    # T must be >=0
-   0  0  D9    #   : Z Z halt3
+   0  0 0D9    #   : Z Z halt3
 
 # Clear N, jump to main loop
   31 31 2000   #   : N N handle_char
@@ -678,7 +679,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
 # TEMP: for now it'll just echo the label I guess?
 
 # read a label
-  2F 2F ?  ?+5 2F ?  0 0 A00  ?  #JSR read_label
+  2F 2F ?  ?+5 2F ?  0 0 0A00  ?  #JSR read_label
 
 # intern it
   2F 2F ?  ?+5 2F ?  0 0 1000 ?  #JSR intern_string
@@ -728,7 +729,7 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   2F 2F ?  ?+5 2F ?  0 0 1300 ?  #JSR table_lookup
 
 # Y = 0 if err, 1 if success
-   0  21  DC  #   : Z Y halt4 # if err (y==0), invalid label
+   0  21 0DC  #   : Z Y halt4 # if err (y==0), invalid label
 
 # X holds value which is offset-
 # put offset+ to outstream
@@ -760,27 +761,27 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   30 20  ?    #  :  C  X
 
 # Test value by repeatedly subtracting and testing <= 0
-   5 20 D0    #  : $-1 X halt0               # char <= -1, == EOF
+   5 20 0D0   #  : $-1 X halt0               # char <= -1, == EOF
    4 20  ?    #  : $1  X                     #
   82 20 2100  #  : $20 X skip_char           # <=20, ' ' or \n     #TODO: make 0x21 constant
-  42 20 D3    #  : $2  X halt1               # <=22       invalid char
+  42 20 0D3   #  : $2  X halt1               # <=22       invalid char
   41 20 1800  #  : $1  X comment             # <=23   #
-  4C 20 D3    #  : $C  X halt1               # <=2F
+  4C 20 0D3   #  : $C  X halt1               # <=2F
   4A 20 1880  #  : $A  X read_lit_num        # <=39   0-9
-  45 20 D3    #  : $5  X halt1               # <=3E
+  45 20 0D3   #  : $5  X halt1               # <=3E
    4 20 1A00  #  : $1  X put_offset (?)      # <=3F   ?
    4 20 1900  #  : $1  X seek_ahead (@)      # <=40   @
-  46 20 1880  #  : $6  X read_lit_num        # <=46   A-F
+  46 20 1B00  #  : $6  X parse_label         # <=46   A-F
   81 20  ?    #  : $10 X                     #
   44 20 1B00  #  : $4  X parse_label         # <=5A   G-Z
-  44 20 D3    #  : $4  X err                 # <=5E   
+  44 20 0D3   #  : $4  X err                 # <=5E   
   41 20 1B00  #  : $1  X parse_label         # <=5F   _
-  42 20 D3    #  : $2  X err                 # <=61
-  46 20 1880  #  : $6  X read_lit_num        # <=67   a-f
+  42 20 0D3   #  : $2  X err                 # <=61
+  46 20 1B00  #  : $6  X parse_label         # <=67   a-f
   81 20  ?    #  : $10 X                     #
   43 20 1B00  #  : $3  X parse_label         # <=7A   g-z
               #
-   0  0 D3    #  : Z   Z err                 #  >7A
+   0  0 0D3   #  : Z   Z err                 #  >7A
 
 @2100 # skip_char:
 # Fetches the next char into C(-), dropping what had been there
@@ -796,9 +797,9 @@ FF80 FF70 FF60 FF50 FF40 FF30 FF20 FF10
   30  30   ?  #   : C C       # 
    8  30   ?  #   : I C       # fetch char
 
-   2F 2F ?  ?+5 2F ?  0 0 A00  ?  #JSR read_label
+   2F 2F ?  ?+5 2F ?  0 0 0A00  ?  #JSR read_label
 
-   0   0  D0  #   : halt0     # exit
+   0   0  0D0  #   : halt0     # exit
    0   0   ?  #   :           # 
 
 
