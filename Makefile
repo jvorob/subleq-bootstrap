@@ -48,7 +48,13 @@ $(objdir)/%.o: $(srcdir)/%.c
 
 
 .PHONY: tower
-tower: hex3.bin
+tower: asm1.bin
+
+asm1.bin: asm/asm1.asm1  asm1_bs.bin
+	sleqrun asm1_bs.bin <$< >$@
+
+asm1_bs.bin: asm/asm1.hex3  hex3.bin
+	sleqrun hex3.bin <$< >$@
 
 hex3.bin: asm/hex3.hex3  hex3_bs.bin
 	sleqrun hex3_bs.bin <$< >$@
