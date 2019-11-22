@@ -68,9 +68,9 @@
 
 @38 #More vars
 #strtab_base strtab_end   (next new string in strtab goes at strtab_end)
-    0E00      0E00
+    3000      3000
 #  table_base table_size 
-@3A   0F00     0
+@3A   0E00     0
 
 
 
@@ -275,6 +275,10 @@
    0   0   ?  #   :           # 
    0   0   ?  #   :           # 
 
+
+
+@0E00 #E00-FFF is the symbol table
+# X X X X 
 
 # ======================= String table functions
 #
