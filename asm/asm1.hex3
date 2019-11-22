@@ -776,10 +776,10 @@
   44 20 1B00  #  : $4  X parse_label         # <=5A   G-Z
   44 20 0D3   #  : $4  X err                 # <=5E   
   41 20 1B00  #  : $1  X parse_label         # <=5F   _
-  42 20 0D3   #  : $2  X err                 # <=61
-  46 20 1B00  #  : $6  X parse_label         # <=67   a-f
+  41 20 0D3   #  : $1  X err                 # <=60
+  46 20 1B00  #  : $6  X parse_label         # <=66   a-f
   81 20  ?    #  : $10 X                     #
-  43 20 1B00  #  : $3  X parse_label         # <=7A   g-z
+  44 20 1B00  #  : $4  X parse_label         # <=7A   g-z
               #
    0  0 0D3   #  : Z   Z err                 #  >7A
 
