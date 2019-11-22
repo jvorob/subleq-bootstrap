@@ -11,6 +11,8 @@
 #  label     #insert value of label
 #  # labels must start with [a-zA-Z_], continue with [a-zA-Z_0-9]
 #  # new rule: literal numbers must start with [0-9], constants like A should be written 0A
+#  # bonus feature: ';' also works as '?'.
+#        (would eventually tie into understanding ops, but for now it's just more readable)
 
 
 ## TODO Checklist
@@ -793,7 +795,9 @@ intern_string_strcmp:
   41  X 1800         #  : $1  X comment             # <=23   #
   4C  X halt1        #  : $C  X halt1               # <=2F
   4A  X 1880         #  : $A  X read_lit_num        # <=39   0-9
-  45  X halt1        #  : $5  X halt1               # <=3E
+  41  X halt1        #  : $1  X halt1               # <=3A
+  41  X 1A00         #  : $1  X put_offset(;)       # <=3B   ;
+  43  X halt1        #  : $3  X halt1               # <=3E
    4  X 1A00         #  : $1  X put_offset (?)      # <=3F   ?
    4  X 1900         #  : $1  X seek_ahead (@)      # <=40   @
   46  X 1B00         #  : $6  X parse_label         # <=46   A-F
