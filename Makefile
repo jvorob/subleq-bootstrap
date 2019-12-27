@@ -1,5 +1,6 @@
 MAKEFLAGS += --warn-undefined-variables
 
+export PATH := .:$(PATH)  # otherwise some tests fail on the compas machine
 
 
 # C/C++ compiler
@@ -7,7 +8,7 @@ CC = gcc
 
 # Compiler and linker flags (warning levels, optimisation level, 
 # include debugging symbols, add include search path, add library search path)
-CFLAGS = -Wall -std=gnu11
+CFLAGS = -Wall -std=c99 -Wno-unknown-pragmas
 LDFLAGS = -L./src/libs
 
 # Object files
