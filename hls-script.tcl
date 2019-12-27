@@ -26,4 +26,6 @@ catch {
     
     # Don't need this, can manually run export_design and it should use the opts from config_export
     #export_design -rtl verilog -format ip_catalog -vendor "user.org" -ipname "subleq"
+
+    export_design
 }
