@@ -30,8 +30,8 @@ I:0  O:0  _alu_A:0  _alu_B:0
 @20   X:0 Y:0 V:0 W:0    P1:0 P2:0 Q1:0 Q2:0
 
 @100 str:
-# "Hello World\n\0"
-48 65 6C 6C    6F 20 57 6F    72 6C 64 0A  0 0 0 0
+# "Hello World\n\n\0"
+48 65 6C 6C    6F 20 57 6F    72 6C 64 0A  0A 0 0 0
 
 
 # ========== Main

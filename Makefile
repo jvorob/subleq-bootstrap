@@ -86,8 +86,8 @@ clean:
 #
 # To do this, we generate 'build/hardcoded_binary.h'
 
-hls_subleq_src := asm/hello.hex3 # Which subleq file to preload the HLS core with
-hls_subleq_cc  := hex3.bin       # which tool is it built with
+hls_subleq_src := asm/hello.asm1 # Which subleq file to preload the HLS core with
+hls_subleq_cc  := asm1.bin       # which tool is it built with
 
 $(objdir)/hardcoded_binary.h : $(objdir)/hls_subleq_prog.bin
 	tools/bin_to_header.py $(objdir)/hls_subleq_prog.bin >$(objdir)/hardcoded_binary.h
