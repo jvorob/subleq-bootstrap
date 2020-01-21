@@ -74,6 +74,22 @@ clean:
 	rm -f *.bin
 
 
+# =====
+# When synthesising this onto an fpga, we need to include the subleq binary 
+# in with the C code, so it actually gets onto the chip
+#
+# To do this, we generate 'build/hardcoded_binary.h'
+
+hls_subleq_src := asm/hello.hex3 # Which subleq file to preload the HLS core with
+hls_subleq_cc  := hex3.bin       # which tool is it built with
+
+$(objdir)/hardcoded_binary.h : $(objdir)/hls_subleq_prog.bin
+	tools/bin_to_header.py $(objdir)/hls_subleq_prog.bin >$(objdir)/hardcoded_binary.h
+
+$(objdir)/hls_subleq_prog.bin: $(hls_subleq_src) $(hls_subleq_cc)
+	sleqrun $(hls_subleq_cc) <$(hls_subleq_src) >$(objdir)/hls_subleq_prog.bin
+
+
 .PHONY: hls
-hls:
+hls: $(objdir)/hardcoded_binary.h $(srcdir)/sleqrun_main.c
 	vivado_hls -i -f hls-script.tcl
