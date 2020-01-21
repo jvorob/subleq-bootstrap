@@ -7,6 +7,10 @@
 #include "shared.h"
 #include "hex.h"
 
+#ifdef __SYNTHESIS__
+#include "ap_utils.h"
+#endif
+
 
 //design q: 16-bit word-addressed or byte-addressed? byte-addressed b/c irl memory modules
 // (although could just chain two into a double-wide word-addressed mem)
@@ -55,7 +59,39 @@ bool glb_QUAD_ALIGNED = FALSE;  // if true, ops are 4 words at a time and must b
 struct vm_state global_vm;
 
 
-volatile unsigned int *uart;
+
+// == UART STUFF
+#define UART_OFFSET_ADDR 0
+#define UART_RX   ((volatile int *)(axi_port + UART_OFFSET_ADDR ))
+#define UART_TX   ((volatile int *)(axi_port + UART_OFFSET_ADDR  + 1))
+#define UART_STAT ((volatile int *)(axi_port + UART_OFFSET_ADDR  + 2))
+#define UART_CTRL ((volatile int *)(axi_port + UART_OFFSET_ADDR  + 3))
+
+#define UART_FLAG_RX_RDY  0x1 // bit 0
+#define UART_FLAG_TX_FULL 0x8 // bit 3
+/*
+ * NOTE on uart operation: RX and TX are both 8-bit
+ *
+ * CTRL reg is as follows:
+ * bit 0: clear TX FIFO
+ * bit 1: clear RX FIFO
+ * bit 4: enable interrupt (0/1 = off/on)  //I think we keep this off for now
+ *
+ * STAT reg is as follows:
+ * bit 0: RX FIFO has data
+ * bit 1: RX FIFO full (dont care)
+ * 
+ * bit 2: TX FIFO empty (dont care)
+ * bit 3: TX FIFO full
+ *
+ * bit 4: interrupts enabled
+ *
+ * == ERRORS: (cleared on read)
+ * bit 5: rcv FIFO overflow
+ * bit 6: Frame error
+ * bit 7: Parity error (I think this is disabled)
+ */
+
 
 // =============== CONSTANTS
 #define LOG_PREFIX "DEBUG-"
@@ -121,9 +157,14 @@ int16_t program_init[] = {
 // ====================== FUNCS
 
 //gets a char from stdin
-int16_t get_input() {
+
+int16_t get_input(volatile int *axi_port) {
 #ifdef __SYNTHESIS__
-    return *(volatile unsigned int *)(uart);
+    int u_state;
+    do { // Keep waiting for input as long as RX buffer empty
+        u_state = *UART_STAT;
+    } while ((u_state & UART_FLAG_RX_RDY) == 0);
+    return *UART_RX;
 #else
     int16_t c = getc(stdin);
     if(glb_DEBUGGING_ENABLED) {
@@ -140,10 +181,15 @@ int16_t get_input() {
 }
 
 //clamps output to 8 bits, prints to stdout
-void write_output(int16_t c) {
+void write_output(int16_t c, volatile int *axi_port) {
 #ifdef __SYNTHESIS__
-    *(volatile unsigned int *)(uart+0x4) = c;
+    int u_state;
+    do { // Keep waiting as long as TX buffer full
+        u_state = *UART_STAT;
+    } while ((u_state & UART_FLAG_TX_FULL) != 0);
+    *UART_TX = c;
 #else
+//void write_output(int16_t c) {
     putc(c & 0xFF, stdout);
     if(glb_DEBUGGING_ENABLED) {
         if(c == '\n') {
@@ -162,8 +208,9 @@ void write_output(int16_t c) {
 #define SHOW_VAR_SGN(name,loc) fprintf(stderr, ", " #name "=%c%04hx", vm->mem[loc]>0?'+':'-',vm->mem[loc]*(vm->mem[loc]>0?1:-1));
 
 //Runs one step, returns 0 normally, 1 if halt
-int step(struct vm_state *vm) {
-//#pragma HLS PIPELINE
+// axi_port is NULL for simulator, is used for HLS
+int step(struct vm_state *vm, volatile int *axi_port) {
+//-#-p-ra-g-m-a HLS PIPELINE
 
     vm->num_cycles++;
 
@@ -212,7 +259,7 @@ int step(struct vm_state *vm) {
     //NOTE: A_VAL and B_VALS should be signed, since we do arithmetic/tests w/ them
     int16_t A_VAL;
     //stdin
-         if(A == IN_ADDR) { A_VAL = get_input(); } 
+         if(A == IN_ADDR) { A_VAL = get_input(axi_port); } 
     //ALU ops
     else if((A & ALU_MASK) == ALU_BASE) {
         switch(A) {
@@ -239,7 +286,7 @@ int step(struct vm_state *vm) {
     //fprintf(stderr, "DEBUG:   ops: A=%hx, A_val=%hx,   B=%hx, B_val=%hx,  B_val2=%hx\n",
     //        A, A_VAL, B, B_VAL, diff);
     
-    if(B == OUT_ADDR) { write_output(diff); }
+    if(B == OUT_ADDR) { write_output(diff, axi_port); }
     else       { vm->mem[B] = diff; }
 
     // === Advance PC 
@@ -283,20 +330,65 @@ void load_test_program(struct vm_state *vm) {
 //Starts executing at pc=0, runs until halt
 //
 //On halt, returns retval = first operand of halt instruction
+
+
+#ifdef __SYNTHESIS__
+int run(volatile int *axi_port) {
+#else
 int run() {
-#pragma HLS INTERFACE m_axi port=uart
+    int *axi_port = NULL; //pass this around to functions
+#endif
+
+#pragma HLS INTERFACE m_axi port=axi_port
 #pragma HLS INTERFACE ap_ctrl_none port=return
+
+#ifdef __SYNTHESIS__
+    //TEMP: lets initialize the UART
+    *UART_CTRL = 0x3 ; // clear RX FIFO and TX FIFO
+
+     // Print hello world repeatedly
+     char msg[] = "Hello World!\n----------\0";
+     long i = 0;
+     int p = 0;
+     int u_state = 0;
+
+     for(i = 0; i < 20000; i++) {
+         //ap_wait();
+
+         // do nothing while TX fifo is full
+         do {
+             u_state = *UART_STAT;
+             //ap_wait();
+         } while ((u_state & UART_FLAG_TX_FULL) != 0);
+
+         *UART_TX = msg[p];
+         p++;
+
+         if (msg[p] == '\0') {
+             p = 0;
+         }
+
+     }
+
+    return 0;
+#else
 
     int retval;
     struct vm_state *vm = &global_vm;
     do {
-        retval = step(vm);
+        retval = step(vm, axi_port);
     } while (retval == 0);
+    return vm->mem[vm->pc];
+#endif /* __SYNTHESIS__ */
+
+
 
     //halted, get A operand of last instrucc
-    return vm->mem[vm->pc];
 }
 
+
+
+#ifndef __SYNTHESIS__
 
 //Reads bytes from file, slurps them into vm memory
 void load_binary_file(struct vm_state *vm, FILE *file) {
@@ -440,3 +532,5 @@ int main(int argc, char *argv[]) {
     }
 
 }
+
+#endif /* __SYNTHESIS__ */
