@@ -8,8 +8,14 @@
 #include "hex.h"
 
 #ifdef __SYNTHESIS__
-#include "ap_utils.h"
-#endif
+    #include "ap_utils.h"
+
+    // If we're doing HLS Synthesis, we want to initialize memory with our desired SUBLEQ binary
+    #include "../build/hardcoded_binary.h" //includes 'starting_code' and 'starting_code_length'
+#endif /* __SYNTHESIS__ */
+
+
+
 
 
 //design q: 16-bit word-addressed or byte-addressed? byte-addressed b/c irl memory modules
