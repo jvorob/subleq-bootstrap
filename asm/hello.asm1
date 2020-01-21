@@ -1,0 +1,54 @@
+#Hello world program
+#Reimplented in asm1
+#
+#Copies bytes from string until it hits a null,
+#text string is stored as 0041, 0020, etc
+#prints to stdout
+
+# ============ Header
+
+#Basic vars & entrypoint
+Z:0 
+T:0  
+_entry:200
+Z2:0      
+
+@4 1  
+@5 0FFFF  
+
+
+@8 # IO & ALU
+I:0  O:0  _alu_A:0  _alu_B:0
+
+@C 0 halt:0 0 0D
+
+@10 #ALU Outputs
+#  & | ^ _   << >> _ _
+   0 0 0 0   0  0  0 0
+  
+#Unsaved registers
+@20   X:0 Y:0 V:0 W:0    P1:0 P2:0 Q1:0 Q2:0
+
+@100 str:
+# "Hello World\n\0"
+48 65 6C 6C    6F 20 57 6F    72 6C 64 0A  0 0 0 0
+
+
+# ========== Main
+# ptr in P1
+@200 main:
+
+P1 P1 ?+1
+str   ?+0FFFE P1 ? # P1- pts to str
+
+loop:
+# fetch P1 -> V
+V V ?
+?+5 ?+4  ? #  _   _ 
+ P1 ?+1  ? # src  _
+   0  V  ? #  _: dest  # dest = -(*-src)
+
+V Z halt  Z Z ? # halt  if '\0'
+
+V O ? # put char
+4 P1 loop #adv ptr (dec)

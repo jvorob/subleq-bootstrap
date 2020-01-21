@@ -2,6 +2,7 @@
 *.swo
 build/
 *.bin
+*.bin?
 *.s64
 
 sleqrun
