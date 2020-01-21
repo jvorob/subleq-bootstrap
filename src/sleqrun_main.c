@@ -340,56 +340,68 @@ void load_test_program(struct vm_state *vm) {
 
 #ifdef __SYNTHESIS__
 int run(volatile int *axi_port) {
+    #pragma HLS INTERFACE m_axi port=axi_port
+    #pragma HLS INTERFACE ap_ctrl_none port=return
 #else
 int run() {
     int *axi_port = NULL; //pass this around to functions
 #endif
 
-#pragma HLS INTERFACE m_axi port=axi_port
-#pragma HLS INTERFACE ap_ctrl_none port=return
+
+    int retval;
+    struct vm_state *vm = &global_vm;
+    vm->pc = 0;
+
 
 #ifdef __SYNTHESIS__
     //TEMP: lets initialize the UART
     *UART_CTRL = 0x3 ; // clear RX FIFO and TX FIFO
 
-     // Print hello world repeatedly
-     char msg[] = "Hello World!\n----------\0";
-     long i = 0;
-     int p = 0;
-     int u_state = 0;
+    //  // Print hello world repeatedly
+    //  char msg[] = "Hello World!\n----------\0";
+    //  long i = 0;
+    //  int p = 0;
+    //  int u_state = 0;
 
-     for(i = 0; i < 20000; i++) {
-         //ap_wait();
+    //  for(i = 0; i < 20000; i++) {
+    //      //ap_wait();
 
-         // do nothing while TX fifo is full
-         do {
-             u_state = *UART_STAT;
-             //ap_wait();
-         } while ((u_state & UART_FLAG_TX_FULL) != 0);
+    //      // do nothing while TX fifo is full
+    //      do {
+    //          u_state = *UART_STAT;
+    //          //ap_wait();
+    //      } while ((u_state & UART_FLAG_TX_FULL) != 0);
 
-         *UART_TX = msg[p];
-         p++;
+    //      *UART_TX = msg[p];
+    //      p++;
 
-         if (msg[p] == '\0') {
-             p = 0;
-         }
+    //      if (msg[p] == '\0') {
+    //          p = 0;
+    //      }
 
-     }
+    //  }
 
-    return 0;
+    // return 0;
+
+    for(long i = 0; i < starting_code_length; i++) {
+        vm->mem[i] = starting_code[i];
+    }
 #else
 
-    int retval;
-    struct vm_state *vm = &global_vm;
+#endif /* __SYNTHESIS__ */
+
     do {
         retval = step(vm, axi_port);
     } while (retval == 0);
-    return vm->mem[vm->pc];
+
+#ifdef __SYNTHESIS__
+    //stay halted
+    while(1) { ap_wait(); }
 #endif /* __SYNTHESIS__ */
 
-
-
     //halted, get A operand of last instrucc
+    return vm->mem[vm->pc];
+
 }
 
 
