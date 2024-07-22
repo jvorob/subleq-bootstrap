@@ -5,5 +5,7 @@ build/
 *.bin?
 *.s64
 
+test/*.out
+
 sleqrun
 hex1

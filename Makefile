@@ -84,6 +84,13 @@ test_asm1_bin: asm1.bin sleqrun
 	@diff -q $(testdir)/hello_asm1_bin.out $(testdir)/hello_asm1_bin.expected || \
 		echo "Test $@ failed"	
 
+.PHONY: test_too_many_labels 
+test_too_many_labels: $(testdir)/test_too_many_labels.asm1 asm1.bin
+	@./sleqrun asm1.bin <$< 2>/dev/null >/dev/null ; exit_code="$$?"; \
+	if [ $$exit_code -ne 5 ]; then \
+		echo "Test $@ failed, expected to halt with code 5"; \
+	fi 
+
 
 .PHONY: clean
 clean:
