@@ -18,10 +18,10 @@
 
 
 ## TODO Checklist
-# - finish refactoring intern_string and tables code to use asm1 syntax
 # - Rethink register conventions?
-# - add overflow check to symbol table (only has x200 words of space)
-# - add exist check to not make duplicate labels
+# - DONE add exist check to not make duplicate labels
+# - DONE finish refactoring intern_string and tables code to use asm1 syntax
+# - DONE add overflow check to symbol table (only has x200 words of space)
 
 
 #niceties for later
@@ -373,8 +373,7 @@ intern_string_strcmp:
     X X; Y X; # X- = len
     n1 X;     # X++ ( len-- )
 
-10AC 10AC  ?  #   : cP1 cP1        #
-  P1 10AC  ?  #   :  P1 cP1        # cmpP1+ = (P1)  (loop skips len field)
+10AC 10AC; P1 10AC;  # cmpP1+ = (P1)  (loop skips len field)
 
 strtab_end Z   ?  #   : strtab_end Z   #
 10AF 10AF  ?  #   : CP2 CP2        #
@@ -383,10 +382,11 @@ strtab_end Z   ?  #   : strtab_end Z   #
 
 
 @10A0 #strcmp_loop:
-   n1 10AC; # : $-1 cP1     #
-   n1 10AF; # : $-1 cP2     # advance ptrs (+ so inc)
+# advance ptrs (+ so inc)
+   n1 10AC; # CP1(+) ++
+   n1 10AF; # CP2(+) ++
 
-##   #fetch next char of each string
+##   #fetch next char of each string into W, T
         T T; W W;
 @10AC   0  W;  #   : cP1:_ W        #
 @10AF   0  T;  #   : cP2:_ T        #
@@ -428,8 +428,29 @@ strtab_end Z   ?  #   : strtab_end Z   #
 @1200 table_insert: #=====
 # Inserts (X, Y) into table (they go in negated)
 # increments table size by 2
-# doesn't check for duplicates (TODO maybe eventually)
-#
+# clobbers: X, Y, V, P1
+
+# First: need to recursively call table_lookup
+#=== save X, Y, R
+    Z Z ?+3 #skip slots
+    ti_tmpX: 0 ti_tmpY: 0 ti_tmpR: 0
+
+    ti_tmpX ti_tmpX; X ti_tmpX;
+    ti_tmpY ti_tmpY; Y ti_tmpY;
+    ti_tmpR ti_tmpR; R ti_tmpR;
+
+#jsr table_lookup(X)
+R R; ?+5 R; Z Z 1300  ?
+
+Z Z ;
+Z Y ?+3   # Y<= 0, label not found, continue
+Z Z halt6 # else, lookup returned 1, duplicate label, halt
+
+# load X, Y, R
+    X X; ti_tmpX X;
+    Y Y; ti_tmpY Y;
+    R R; ti_tmpR R;
+
 
   P1 P1;
   table_base P1;
@@ -485,15 +506,16 @@ strtab_end Z   ?  #   : strtab_end Z   #
 #If *(P-) == X, found
 # Loop invariants: when entering at top: will do body (-V) + 1 times
 # Loop invariants: when entering at looptest: will do body (-V) times
-# P(-) points to current critter to test
-# X is target value
+# P(-) points to current entry in symtab to test
+# X(+) is target strp
 # V is counter == neg length of table
 
 @1320 table_search_loop:
-# GFETCH_SUB: Y = *(-P)
-Y Y; ?+5 ?+4; P1 ?+1; 0  Y;
 
-# Compare X to key
+# fetch next string ptr into Y
+Y Y; ?+5 ?+4; P1 ?+1; 0  Y; # GFETCH_SUB: Y = *(-P)
+
+# Compare X to Y
 # NOTE: table contents are (-), so Y+
 
 # If X == Y, jmp tsearch_found
@@ -502,7 +524,7 @@ Y Y; ?+5 ?+4; P1 ?+1; 0  Y;
    Y   Z 1360 #   : Y Z tsrch_found   # if Y-X == 0, table entry found
 
 # else, continue table walk
-  i2  P1;  # P -= 2
+  i2  P1;  # P -= 2 (advance to next symtab entry)
    Z  Z 1340 # jmp looptest
 
 @1340 #looptest:
@@ -514,14 +536,14 @@ Y Y; ?+5 ?+4; P1 ?+1; 0  Y;
 
 @1360
 #tsearch_found:
-                              # P(-) is at matching key
-   i1 P1;  # P--  go to val
+           # P(-) is at matching sym_entry.key
+   i1 P1;  # advance P(-) to sym_entry.value
 
 # Fetch value for symbol into X: X = -*(-P)
     X X; ?+5 ?+4; P1 ?+1; 0  X;
 
-    Y Y; n1 Y; # Y = 1 (success)
-    Z Z retsub
+    Y Y; n1 Y;
+    Z Z retsub # return Y=1 (success), X= (symbol value)
 
 
 

@@ -76,7 +76,7 @@ hex1.bin: asm/hex1.hex1 hex1
 
 # ========== TESTS
 .PHONY: test
-test: test_asm1_bin
+test: test_asm1_bin test_too_many_labels test_duplicate_labels
 
 .PHONY: test_asm1_bin
 test_asm1_bin: asm1.bin sleqrun
@@ -90,6 +90,13 @@ test_too_many_labels: $(testdir)/test_too_many_labels.asm1 asm1.bin
 	if [ $$exit_code -ne 5 ]; then \
 		echo "Test $@ failed, expected to halt with code 5"; \
 	fi 
+
+.PHONY: test_duplicate_labels
+test_duplicate_labels: $(testdir)/test_duplicate_labels.asm1 asm1.bin
+	@./sleqrun asm1.bin <$< 2>/dev/null >/dev/null ; exit_code="$$?"; \
+	if [ $$exit_code -ne 6 ]; then \
+		echo "Test $@ failed, expected to halt with code 6"; \
+	fi
 
 
 .PHONY: clean
