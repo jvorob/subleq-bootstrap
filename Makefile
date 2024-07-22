@@ -16,6 +16,7 @@ LDFLAGS = -L./src/libs
 
 srcdir=src
 objdir=build
+testdir=test
 
 sources := $(wildcard $(srcdir)/*.c)
 headers := $(wildcard $(srcdir)/*.h)
@@ -27,8 +28,8 @@ bins    := $(patsubst $(objdir)/%_main.o, %, $(main_objs))
 .PHONY: all
 all: $(bins)
 
-.PHONY: test
-test:
+.PHONY: debug_make
+debug_make:
 	@echo $(shared_objs)
 	@echo $(bins)
 
@@ -51,25 +52,37 @@ $(objdir)/%.o: $(srcdir)/%.c
 tower: asm1.bin
 
 asm1.bin: asm/asm1.asm1  asm1_bs.bin
-	sleqrun asm1_bs.bin <$< >$@
+	./sleqrun asm1_bs.bin <$< >$@
 
 asm1_bs.bin: asm/asm1.hex3  hex3.bin
-	sleqrun hex3.bin <$< >$@
+	./sleqrun hex3.bin <$< >$@
 
 hex3.bin: asm/hex3.hex3  hex3_bs.bin
-	sleqrun hex3_bs.bin <$< >$@
+	./sleqrun hex3_bs.bin <$< >$@
 
 hex3_bs.bin: asm/hex3.hex2 hex2.bin
-	sleqrun hex2.bin <$< >$@
+	./sleqrun hex2.bin <$< >$@
 
 hex2.bin: asm/hex2.hex2 hex2_bs.bin
-	sleqrun hex2_bs.bin <$< >$@
+	./sleqrun hex2_bs.bin <$< >$@
 
 hex2_bs.bin: asm/hex2.hex1 hex1.bin sleqrun
-	sleqrun hex1.bin <$< >$@
+	./sleqrun hex1.bin <$< >$@
 
 hex1.bin: asm/hex1.hex1 hex1
-	hex1 <$< >$@
+	./hex1 <$< >$@
+
+
+
+# ========== TESTS
+.PHONY: test
+test: test_asm1_bin
+
+.PHONY: test_asm1_bin
+test_asm1_bin: asm1.bin sleqrun
+	@./sleqrun asm1.bin <asm/hello.asm1 >$(testdir)/hello_asm1_bin.out 2>/dev/null
+	@diff -q $(testdir)/hello_asm1_bin.out $(testdir)/hello_asm1_bin.expected || \
+		echo "Test $@ failed"	
 
 
 .PHONY: clean
@@ -77,3 +90,4 @@ clean:
 	rm -f $(objdir)/*
 	rm -f $(bins)
 	rm -f *.bin
+	rm -f $(testdir)/*.out
