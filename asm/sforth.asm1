@@ -2,12 +2,16 @@
 # (i.e. forth-style inner loop, can simply list addresses of subroutines and it will nest them properly)
 #
 # ==== MAIN FORTH TODO ======:
-# - Test vars, consts, @, !, +!, -!
-# - Arithmetic, 0branch
-# - Fill in consts/accessors for existing quantities (stack bases, stack tops, etc?)
+# - TOKEN
+# - FIND?
+# - DIG_ASCII NUMBER?
+# - CREATE
+# - IMMEDIATE
+# - :, ;
 #
 # Low priority:
 # - Optimizations (1+, -!, etc)
+# - shifts, bitwise ops
 #
 # LONG-TERM-PROJECT: NEG-OPTIMIZATION?
 # - word-addresses negative? (fetch CWA goes from 3 to 1)
@@ -517,6 +521,10 @@ DO_EXIT_wd: do_const       DO_EXIT_val: EXIT_cd
 DS0_wd: do_const  DS0_val: dstack_base
 RS0_wd: do_const  RS0_val: rstack_base
 
+NOSP__wd: do_const  NOSP__val: NOSP_
+RSP__wd:  do_const   RSP__val: RSP_
+
+
 # ================================================================
 #
 #                    ARITHMETIC / CONTROL FLOW
@@ -526,8 +534,6 @@ RS0_wd: do_const  RS0_val: rstack_base
 # -! +! @ !
 # + - * /MOD
 # 1+ 1- NEG
-# TODO = <> < > <= >=
-# TODO 0= 0< 0<= 0> 0>=
 # TODO 2* >> << AND OR NOT
 
 # Reads from NWA, pushes to stack, advances NWA
@@ -856,6 +862,150 @@ _divmod_loop2:
 
 # ================================================================
 #
+#                        CONTROL FLOW
+#
+# ================================================================
+# BRANCH 0BRANCH
+# = <> < > <= >=
+# 0= 0< 0<= 0> 0>=
+# NOTE: All comparisons fall through to their 0 versions, therefore their
+# headers are separate and point to the code bodies
+
+_eq_wd: ? # ( a b  -  a==b?1:0)
+    # ### Pop NOS, subtract from TOS
+    ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    #TOS is b-a, fallthru to 0eq
+_0eq_cd:
+    Z TOS ?+3 # if     TOS <= 0, nextif
+    Z   Z ?+3 # else   TOS > 0, skip
+    TOS Z ?+6 # nextif TOS >= 0, so TOS == 0, so jmp to ==0
+    # >0 or <0
+        TOS TOS;
+        Z Z NEXT_cd
+    # ==0:
+        n1 TOS; #TOS = 1
+        Z Z NEXT_cd
+
+
+
+_ne_wd: ? # ( a b  -  a!=b?1:0)
+    # ### Pop NOS, subtract from TOS
+    ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    #TOS is b-a
+_0ne_cd:
+    Z TOS ?+3 # if     TOS <= 0, nextif
+    Z   Z ?+3 # else   TOS > 0, skip
+    TOS Z ?+9 # nextif TOS >= 0, so TOS == 0, so jmp to ==0
+    # >0 or <0
+        TOS TOS; n1 TOS; #TOS = 1
+        Z Z NEXT_cd
+    # ==0:
+        #TOS is already 0
+        Z Z NEXT_cd
+
+
+
+
+_lt_wd: ? # ( a b  -  a<b?1:0)
+    # ### Pop NOS, subtract from TOS
+    ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    #TOS is b-a
+_0gt_cd: # for 0-comparison, TOS is a-0, so is gt instead of lt
+
+    # a<b iff b-a>0
+    Z TOS ?+3 # if     b-a <= 0, b<=a nextif
+    Z   Z ?+6 # else   b-a > 0 , b > a skip
+    # b <= a
+        TOS TOS; #TOS = 0
+        Z Z NEXT_cd
+    # b > a
+        TOS TOS; n1 TOS; #TOS = 1
+        Z Z NEXT_cd
+
+_ge_wd: ? # ( a b  -  a>=b?1:0)
+    # ### Pop NOS, subtract from TOS
+    ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    #TOS is b-a
+
+_0le_cd: # for 0-comparison, TOS is a-0, so is le instead of ge
+    # a>=b iff b-a<=0
+    Z TOS ?+3 # if     b-a <= 0, b<=a nextif
+    Z   Z ?+9 # else   b-a > 0 , b > a skip
+    # b <= a
+        TOS TOS; n1 TOS; #TOS = 1
+        Z Z NEXT_cd
+    # b > a
+        TOS TOS; #TOS = 0
+        Z Z NEXT_cd
+
+
+
+# 0-comparisons are fallthroughs of the main paths, so write their headers here
+# TODO: HEADERS
+_0eq_wd: _0eq_cd
+_0ne_wd: _0ne_cd
+
+# = link up
+_0gt_wd: _0gt_cd
+_0le_wd: _0le_cd
+
+# Define in reference to the above (this is slower, but safer)
+_0ge_wd: ?
+    T T; TOS T; T Z; TOS TOS; Z TOS; Z Z _0le_cd
+
+_0lt_wd: ?
+    T T; TOS T; T Z; TOS TOS; Z TOS; Z Z _0gt_cd
+
+
+_le_wd: do_colon
+    SWAP_wd _ge_wd EXIT_wd
+
+_gt_wd: do_colon
+    SWAP_wd _lt_wd EXIT_wd
+
+
+BRANCH_wd: ? # NWA += *(NWA)
+BRANCH_cd:
+    #ptr(-) in P1
+    P1 P1; NWA P1; # P1(-) points to NWA
+    ?+5 ?+4; P1 ?+1; 0 Z; # GADGET:FETCH Z -= *(-P1)
+
+    # Z = -offset
+    Z NWA; # NWA += offset;
+    Z Z NEXT_cd
+
+_0BRANCH_wd: ? # If 0, jump BRANCH_cd
+    ### Pop NOS into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    T T; TOS T; #TOS in T(-)
+
+    TOS TOS; Z TOS; #NOS+ into TOS
+
+    Z Z;
+    Z T ?+3 #if T <= 0; goto nextif
+    Z Z ?+3 #else: T>0, no branch
+    T Z ?+6 #nextif T>=0 (T==0): jump to take_branch
+
+    #Else: no branch, step over offset
+    n1 NWA;
+    Z Z NEXT_cd
+
+    # take_branch:
+    Z Z BRANCH_cd #(need extra op to clear Z)
+
+
+# ================================================================
+#
 #                        I/O and STRINGS
 #
 # ================================================================
@@ -985,6 +1135,86 @@ TEST_MATH_wd: do_colon #Should emit 23 00 03 04 46 fa   20
 
     EXIT_wd
 
+TRUE_FALSE_wd: do_colon # (bool - 'T' or 'F')
+    # If true, pushes T, else F
+    LIT_wd 46 #'F'
+    SWAP_wd _0BRANCH_wd 4 #if 0, stay on F
+    DROP_wd LIT_wd 54 #'T' #else: T
+    EXIT_wd
+    0d 0d 0d
+
+_2DUP_wd: do_colon
+    OVER_wd OVER_wd EXIT_wd
+
+TEST_BRANCH_wd: do_colon # Prints "*****" using a loop
+    #Comparisons should print a solid block of "T"
+
+    LIT_wd 5
+    # loop: (-8)
+    _1minus_wd DUP_wd
+    LIT_wd   2A   EMIT_wd
+    _0BRANCH_wd 3 #if 0, jump ahead to exit
+    BRANCH_wd 0FFF8
+
+    NL_wd
+
+    # Test comparisons
+    LIT_wd 1 LIT_wd 1 #Should be TFFFTT
+    _2DUP_wd _eq_wd         TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _ne_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _gt_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _lt_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _ge_wd         TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _le_wd         TRUE_FALSE_wd EMIT_wd
+    _2DROP_wd NL_wd
+
+    LIT_wd 2 LIT_wd 1 #Should be FTTFTF
+    _2DUP_wd _eq_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _ne_wd         TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _gt_wd         TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _lt_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _ge_wd         TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _le_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DROP_wd NL_wd
+
+    LIT_wd 1 LIT_wd 2 #Should be FTFTFT
+    _2DUP_wd _eq_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _ne_wd         TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _gt_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _lt_wd         TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _ge_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    _2DUP_wd _le_wd         TRUE_FALSE_wd EMIT_wd
+    _2DROP_wd NL_wd
+
+    LIT_wd 1 #Should be FTTFTF
+    DUP_wd _0eq_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0ne_wd         TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0gt_wd         TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0lt_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0ge_wd         TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0le_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DROP_wd NL_wd
+
+    LIT_wd 0 #Should be TFFFTT
+    DUP_wd _0eq_wd         TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0ne_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0gt_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0lt_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0ge_wd         TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0le_wd         TRUE_FALSE_wd EMIT_wd
+    DROP_wd NL_wd
+
+    LIT_wd 0FFFF #Should be FTFTFT
+    DUP_wd _0eq_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0ne_wd         TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0gt_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0lt_wd         TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0ge_wd _0eq_wd TRUE_FALSE_wd EMIT_wd
+    DUP_wd _0le_wd         TRUE_FALSE_wd EMIT_wd
+    DROP_wd NL_wd
+
+    EXIT_wd
+
 # Should emit "H ii"
 TEST_wd: do_colon
 TEST_bd:
@@ -992,7 +1222,12 @@ TEST_bd:
     #TEST_STACK2_wd SPACE_wd
     #TEST_RETSTACK_wd SPACE_wd
     #TEST_VARS_wd
-    TEST_MATH_wd
+    #TEST_MATH_wd
+
+    #NOSP__wd EMIT_wd
+    #RSP__wd EMIT_wd
+
+    #TEST_BRANCH_wd
 
 
     HALT1_wd
