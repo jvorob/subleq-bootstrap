@@ -72,6 +72,9 @@ hex2_bs.bin: asm/hex2.hex1 hex1.bin sleqrun
 hex1.bin: asm/hex1.hex1 hex1
 	./hex1 <$< >$@
 
+# ===== Forth?
+sforth.bin: asm/sforth.asm1 asm1.bin
+	./sleqrun asm1.bin <$< >$@
 
 
 # ========== TESTS
