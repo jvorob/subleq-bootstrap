@@ -1,26 +1,22 @@
 # First attempt at writing a threaded-interpreter
 # (i.e. forth-style inner loop, can simply list addresses of subroutines and it will nest them properly)
-
-# Design musings:
-# - NWA (next word)
-# - CWA (codeword addr, exists towards the end of NEXT and at the start of DOCOL)
-# - RSP(
 #
-# - Need a WC  #(word counter, where are we executing rn in thread)
-# - Need a WA  #(word address: WA = *WC is address of next word to exec)
-# - Need a WD  #(word data: WD = WA[0], first )
-#   - to execute a word, jump to word data
-#   - if nested word, WD will be addr of 'nest', will push WC, set WC to WA+1, jump exec
-# - Need a RSP
+# ==== MAIN FORTH TODO ======:
+# - Test vars, consts, @, !, +!, -!
+# - Arithmetic, 0branch
+# - Fill in consts/accessors for existing quantities (stack bases, stack tops, etc?)
 #
+# Low priority:
+# - Optimizations (1+, -!, etc)
 #
-#
-# TODO:
+# LONG-TERM-PROJECT: NEG-OPTIMIZATION?
 # - word-addresses negative? (fetch CWA goes from 3 to 1)
 # - codeword address negative? (jmp(*CWA) goes from 4 to 2)
 # - codewords 0 0 CW? (jmp(*CWA) goes from 4 to 1)
+# - variables/constants negative?
 #
-# - psh/pop gadgets?
+# PUSH-POP OPTIMIZATION? (not worth it)
+# - psh/pop gadgets as subroutines?
 #   - all SP inc/dec would need to be set in 4 places
 #   - would need to handle returns
 #   - COSTS:
@@ -246,31 +242,9 @@ NEXT_cd:
     Z Z NEXT_cd; #Jump next
 
 
-
-# ==== HELPERS
-# Calling convention: write return value into foo_R
-# NOTE: these -push and -pop, sub TOS into X- first, then
-
-# pshx_: #neg-pushes X to SP (BYPASSES TOS, copy TOS to X first)
-#     c_SP0:0  c_SP1:0  ;
-#     X        c_SP2:0  ;
-#     Z Z pshx_r: 0 #return
-# 
-# popx_: #neg-pops X from SP (BYPASSES TOS, copy TOS to X first)
-#     #NOTE: clear X as you call it
-#     c_SP3: 0  X;
-#     Z Z popx_r: 0 #return
-# 
-# # How to call these?
-# popx_r popx_r; ?+5 popx_r; X X popx_; ~? 
-
-# Gadgets:
-# X X; 
-    
-
 # ====== FORTH PRIMITIVE WORDS
 
-@900 #WORDs
+@900 #WORDS
 
 
 # ================================================================
@@ -449,7 +423,6 @@ _2SWAP_cd:
     Z Z NEXT_cd
 
 ROT_wd: ? # ( a b tos -- b tos a )
-ROT_cd:
     # Fetch X=-a, Y=-b
     X X; Y Y;
     ?+5 ?+4; NOSP_  ?+1; 0 Y; # GADGET: -@NOS(Y)
@@ -474,7 +447,6 @@ ROT_cd:
     Z Z NEXT_cd
 
 _ROT_wd: ? # ( a b tos -- tos a b )
-_ROT_cd:
     # Fetch X=-a, Y=-b
     X X; Y Y;
     ?+5 ?+4; NOSP_  ?+1; 0 Y; # GADGET: -@NOS(Y)
@@ -499,15 +471,65 @@ _ROT_cd:
 
 # ================================================================
 #
+#                       VARS / CONSTS
+#
+# ================================================================
+
+do_var: # push CWA+1
+    ### Push TOS into NOS
+    T T; TOS T;
+    n1 NOSP_; #grow stack
+    ?+11 ?+10; NOSP_ ?+D; # GADGET: NEG!NOS(T)
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; T   0; # .
+
+    TOS TOS; CWA Z; Z TOS; n1 TOS; # TOS = CWA+1
+    Z Z NEXT_cd
+
+do_const: # push *(CWA+1)
+    ### Push TOS into NOS
+    T T; TOS T;
+    n1 NOSP_; #grow stack
+    ?+11 ?+10; NOSP_ ?+D; # GADGET: NEG!NOS(T)
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; T   0; # .
+
+    #ptr(-) in P1
+    P1 P1; CWA P1; i1 P1; # P1(-) points to CWA+1
+    ?+5 ?+4; P1 ?+1; 0 Z; # GADGET:FETCH Z -= *(-P1)
+    TOS TOS; Z TOS;
+
+    Z Z NEXT_cd
+
+# Outer interp vars
+BASE_wd:  do_var    BASE_val: 0A
+STATE_wd: do_var    STATE_val: 0
+
+# Dict vars
+DP_wd:     do_var       DP_val:    0DEAD #TODO
+LATEST_wd: do_var       LATEST_val: 0DEAD
+
+# Constant, key addresses of do_colon
+DO_COLON_wd: do_const       DO_COLON_val: do_colon
+DO_EXIT_wd: do_const       DO_EXIT_val: EXIT_cd
+
+# Note: when stack is empty, NOSP(-) points to DS0+2
+# Note: when stack is empty, RSP(-) points to DS0+1
+DS0_wd: do_const  DS0_val: dstack_base
+RS0_wd: do_const  RS0_val: rstack_base
+
+# ================================================================
+#
 #                    ARITHMETIC / CONTROL FLOW
 #
 # ================================================================
 # LIT 
-# @ !
-# + - * / /MOD
+# -! +! @ !
+# 1+ 1- + - * / /MOD
 # = <> < > <= >=
 #
-
 
 # Reads from NWA, pushes to stack, advances NWA
 LIT_wd: ?
@@ -533,8 +555,73 @@ LIT_cd:
 
     Z Z NEXT_cd
 
+_at_wd: ? # ( addr - *addr )
+_at_cd:
+    P1 P1; TOS P1; # P1(-) = addr
 
+    # Fetch(-) into Z
+    ?+5 ?+4;        P1   ?+1; 0  Z;  # Z = -*(-P1)
+    TOS TOS; Z TOS; #TOS gets (+)
 
+    Z Z NEXT_cd
+
+_bang_wd: ? # (val addr - [*addr = val] )
+
+    P1 P1; TOS P1; # addr in P1(-)
+
+    X X; # Pop val(-) into X
+    ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: POP(X-)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+
+    # Pop 3OS into TOS 
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: POP(Z-)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+    TOS TOS; Z TOS;
+
+    # POKE value into ptr
+    # GADGET: POKE:
+    ?+11 ?+10; P1 ?+D; # *(P1-) = -X
+    ?+C  ?+B ; P1 ?+8; # .
+    ?+9  ?+8 ; P1 ?+5; # .
+    0    0   ; X   0; # .
+    Z Z NEXT_cd
+
+_plusbang_wd: ? # (val addr - [*addr += val] )
+
+    P1 P1; TOS P1; # addr in P1(-)
+
+    X X; # Pop val(-) into X
+    ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: POP(X-)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+
+    # Pop 3OS into TOS 
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: POP(Z-)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+    TOS TOS; Z TOS;
+
+    # POKESUB X(-) into ptr  ( += val )
+    ?+6  ?+5 ; P1 ?+2 ; X 0; # GADGET: POKESUB(P1), *(-P1) -= X
+
+    Z Z NEXT_cd
+
+_minusbang_wd: ? # (val addr - [*addr -= val] )
+    P1 P1; TOS P1; # addr in P1(-)
+
+    X X; # Pop val(-) into X
+    ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: POP(X-)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+
+    # Pop 3OS into TOS 
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: POP(Z-)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+    TOS TOS; Z TOS;
+
+    #flip X,  Z(+) = val
+    Z Z; X Z;
+    # POKESUB Z(+) into ptr  ( *ptr -= val )
+    ?+6  ?+5 ; P1 ?+2 ; Z 0; # GADGET: POKESUB(P1), *(-P1) -= Z
+
+    Z Z NEXT_cd
 # ================================================================
 #
 #                        I/O and STRINGS
@@ -612,12 +699,7 @@ TEST_STACK2_wd: do_colon # should print "badc acb bac"
 
     EXIT_wd
 
-# Should emit "H ii"
-TEST_wd: do_colon
-TEST_bd:
-    TEST_STACK1_wd SPACE_wd
-    TEST_STACK2_wd SPACE_wd
-
+TEST_RETSTACK_wd: do_colon
     # Test return stack
     NL_wd
     LIT_wd 49 # I
@@ -630,6 +712,30 @@ TEST_bd:
     _fromR_wd EMIT_wd # "!"
 
     #_fromR_wd EMIT_wd # reads canary, 0xCAFE (emits 0xfe)
+    EXIT_wd
+
+TEST_VARS_wd: do_colon # should emit: 0A 10 0A 0A 20
+    BASE_wd _at_wd EMIT_wd #Base starts at 0A
+    LIT_wd 10 BASE_wd _bang_wd BASE_wd _at_wd EMIT_wd # Set to 0x10, fetch, emit
+
+    LIT_wd 1 BASE_wd _plusbang_wd  #Add 1
+    LIT_wd 7 BASE_wd _minusbang_wd #subtract 7
+    BASE_wd _at_wd EMIT_wd #should emit 0A
+
+    BASE_wd _at_wd EMIT_wd #should emit 0A
+
+    DO_COLON_wd EMIT_wd #should emit 20 (since DO_COLON is at 0820?)
+
+    EXIT_wd
+
+# Should emit "H ii"
+TEST_wd: do_colon
+TEST_bd:
+    #TEST_STACK1_wd SPACE_wd
+    #TEST_STACK2_wd SPACE_wd
+    #TEST_RETSTACK_wd SPACE_wd
+    #TEST_VARS_wd
+
 
     HALT1_wd
 
@@ -693,8 +799,6 @@ forth_rstack_base_val: rstack_base
 #@3000 is strtab, grows upward
 
 
-
-
 # ========== GADGETS / CODE SNIPPETS
 
 
@@ -740,8 +844,10 @@ forth_rstack_base_val: rstack_base
 # GFETCH:           ptr(-)         tgt
 # X X; ?+5 ?+4;        P   ?+1; 0  X;  # X = -*(-P)
 #
+# X X; ?+5 ?+4; P1 ?+1; 0 X; # GADGET:FETCH X = -*(-P1)
+# ?+5 ?+4; P1 ?+1; 0 X; # GADGET:FETCH X -= *(-P1)
 #
-# X X; ?+5 ?+4; PPPP ?+1; 0 X; # GADGET:FETCH 
+# ?+6  ?+5 ; P1 ?+2 ; X 0; # GADGET: POKESUB(P1), *(-P1) -= X
 #
 # # GADGET: POKE: *(P-) = -X
 # ?+11 ?+10; P_ ?+D;  # set J
@@ -754,3 +860,16 @@ forth_rstack_base_val: rstack_base
 # ?+C  ?+B ; P_ ?+8; # .
 # ?+9  ?+8 ; P_ ?+5; # .
 # 0    0   ; X_   0; # .
+#
+## ===== Stack Gadgets
+# ### Push TOS into NOS
+# T T; TOS T;
+# n1 NOSP_; #grow stack
+# ?+11 ?+10; NOSP_ ?+D; # GADGET: NEG!NOS(T)
+# ?+C  ?+B ; NOSP_ ?+8; # .
+# ?+9  ?+8 ; NOSP_ ?+5; # .
+# 0    0   ; T   0; # .
+#
+# ### Pop NOS into Z
+# ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+# i1 NOSP_; #shrink stack (get to 3OS = a)
