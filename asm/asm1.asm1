@@ -1,31 +1,36 @@
 # Rewriting asm1 in itself
 # Takes advantage of the new labels, tries to clean up the code
 #
-# Asm1 Spec:
-# Like hex1, handles hex numbers and '#' comments
+# === Asm1 Spec:
+# Like hex1, handles hex literals and '#' single-line comments
+# - NOTE: new to asm1: hex literals must start with 0-9,
+#         e.g. 0FACE instead of FACE, 0A instead of A
 # Like hex2, handles '?' and '@'
-# Like hex3, handle '?+XX'
+# - ? outputs address of next word
+# - @1000 pads file out to address with 0x1000 with pad words
+# Like hex3, handles '?+XX'
+# - ?+1F00 outputs next word address +1F00 (wraps at int_max)
 #
-# Also does:
-#  label:    #create label here
-#  label     #insert value of label
+# New features:
+# - label:    #create label here
+# - label     #insert value of label
 #  # labels must start with [a-zA-Z_], continue with [a-zA-Z_0-9]
-#  # new rule: literal numbers must start with [0-9], constants like A should be written 0A
 #  # bonus feature: ';' also works as '?'.
 #        (would eventually tie into understanding ops, but for now it's just more readable)
 #
-# Also: errors out with halt5 if symbol table overflows
-
+# Bonus features (not in asm1_bs:)
+# - errors out with halt5 if symbol table overflows
+# - errors out with halt6 if defining a duplicate symbol
 
 ## TODO Checklist
+# - add initializer to reset entry to halt (catch runaway nops)
+# - Add ~ (negate next outputted word?)
+# - Add % (change pad word?)
+#      - can use %[literal] to set pad word used by @. (e.g. %20 will pad with spaces)
 # - Rethink register conventions?
 # - DONE add exist check to not make duplicate labels
 # - DONE finish refactoring intern_string and tables code to use asm1 syntax
 # - DONE add overflow check to symbol table (only has x200 words of space)
-
-
-#niceties for later
-#add initializer to reset entry to halt (catch runaway nops)
 
 
 # ===== NOTES ON MEMORY LAYOUT, CALLING CONVENTIONS, ETC
@@ -59,6 +64,11 @@ IN: 0
 OUT: 0
 alu_A: 0
 alu_B: 0
+
+# Uninitialized memory is 0d
+# If we execute 0d 0d 0d, we'll clear 0d and jump here
+# From here, jump to halt7 (0106) to catch the error
+@0D   0 0 0106
 
 @10 #ALU outputs
 # & | ^ _   << >> _ _
@@ -148,9 +158,10 @@ halt4:   4  4 0DC    #DC:   err: halt4 # uninitialized label
 
 
 #more errors
-halt5: 5 5 halt5 # err: halt5 # strtab overflow
-halt6: 6 6 halt6
-halt7: 7 7 halt7
+@0100 halt5: 5 5 halt5 # err: halt5 # strtab overflow
+@0103 halt6: 6 6 halt6 # err halt6: #defining duplicate label
+@0106 halt7: 7 7 halt7 # err, jumped to uninitialized memory
+      halt8: 8 8 halt8 #
 
 # ======================= Primitives
 
