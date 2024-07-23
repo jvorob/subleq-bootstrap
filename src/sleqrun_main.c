@@ -82,13 +82,14 @@ struct vm_debug_opts glb_debug_opts = {0};
 #define ALU_A 0xA
 #define ALU_B 0xB
 #define ALU_BASE 0x10
-#define ALU_MASK 0xFFF8 //top 5 bits, ALU gets 7 regs
+#define ALU_MASK 0xFFF8 // ignore bottom 3 bits, ALU gets 8 regs
 
 #define ALU_AND 0x10
 #define ALU_OR  0x11
 #define ALU_XOR 0x12
 #define ALU_LS  0x14
 #define ALU_RS  0x15
+#define ALU_ARS  0x16
 
 //Test program: should output 'A' and exit ?
 int16_t program_init[] = {
@@ -100,7 +101,7 @@ int16_t program_init[] = {
        0,   0,   0,   0,     0,   0,   0, 0xd,
 
       //0x10: ALU
-    // &    |    ^          <<   >> 
+    // &    |    ^          <<   >>  +>>
        0,   0,   0,   0,     0,   0,   0,   0,
        0,   0,   0,   0,     0,   0,   0,   0,
 
@@ -168,15 +169,26 @@ int step(struct vm_state *vm) {
         fprintf(stderr, LOG_PREFIX "OP: PC=x%04hx", vm->pc);
 
         //optional debug printing
+        
+        // === Standard asm variables, useful for debugging assembler
         SHOW_VAR_NEG(X,X_ADDR);
         SHOW_VAR_NEG(Y,Y_ADDR);
         SHOW_VAR_SGN(V, 0x22);
         SHOW_VAR_SGN(W, 0x23);
-        SHOW_VAR_NEG(P1, 0x24);
+        //SHOW_VAR_NEG(P1, 0x24);
 
-        SHOW_VAR(sb,0x38);
-        SHOW_VAR(se,0x39);
+        // SHOW_VAR(sb,0x38);
+        // SHOW_VAR(se,0x39);
+        
 
+        // === Forth vars
+        SHOW_VAR(NWA, 0x800);
+        SHOW_VAR(CWA, 0x810);
+        SHOW_VAR(TOS, 0x180);
+        //SHOW_VAR_NEG(NOSP, 0x181);
+        //SHOW_VAR_NEG(RSP, 0x182);
+
+        // === Other?
         //SHOW_VAR(A,ALU_A);
         //SHOW_VAR(B,ALU_B);
         //SHOW_VAR_SGN(P,0x22);
@@ -224,6 +236,7 @@ int step(struct vm_state *vm) {
             case(ALU_XOR):  A_VAL = vm->mem[ALU_A] ^  vm->mem[ALU_B]; break;
             case(ALU_LS ):  A_VAL = vm->mem[ALU_A] << vm->mem[ALU_B]; break;
             case(ALU_RS ):  A_VAL = ((uint16_t)vm->mem[ALU_A]) >> vm->mem[ALU_B]; break;
+            case(ALU_ARS):  A_VAL = vm->mem[ALU_A] >> vm->mem[ALU_B]; break;
             default:        A_VAL = 0;
         }
 

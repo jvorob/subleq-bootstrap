@@ -81,6 +81,7 @@ alu_xor: 0
 0
 alu_ls: 0
 alu_rs: 0
+alu_ars: 0
 
 # ========  REGISTERS AND CO.
 
@@ -154,6 +155,10 @@ halt4:   4  4 0DC    #DC:   err: halt4 # Executed 0d 0d 0d
     # Note: address 110 must be 0 so that jumping to 0D yields LEQZ and jumps
     Z Z halt2
 
+@120
+halt5: 5 5 halt5 #halt5: divide by zero
+halt6: 6 6 halt6
+halt7: 7 7 halt7
 
 
 # ====================== CORE FORTH VARS
@@ -185,14 +190,6 @@ RSP_: 0 #RSP(-) points to next free space
 # ======================= Primitives
 
 @800
-enter_forth:  # subroutine, 1 arg in X
-# Pushes exit_forth to RSP
-#
-# set FPC to X 
-# start executing forth
-# should run until 'unnest'
-
-
 NEXT_cd:
 @800   NWA: 0 Z ;       # fetch from NWA into Z(-)
 @803   810 810; Z 810; # flip Z into CWA(+), @810
@@ -200,14 +197,14 @@ NEXT_cd:
        Z Z 810  # continue (skip some bytes for easier alignment of @s)
 
      # fetch CW into jumpPTR (@81B)
-@810   CWA: 0 Z; 
+@810   CWA: 0 Z;
 @813   81B 81B;
 @816   Z 81B ;
 
 # Jump to codeword
 @819 Z Z  @81B 0  #jumpPTR @ 81B
 
-# == TEMP DEBUG: 
+# == TEMP DEBUG:
 #@819 i1 i2 @81B 0  #jumpPTR @ 81B
 #Z Z halt3
 
@@ -216,7 +213,7 @@ NEXT_cd:
     # Pushes NWA to return stack
     # Sets NWA = CWA+1
     # jumps NEXT
-    
+
     # == Push NWA to return stack
     n1 RSP_ ; #grow return stack
     T T; NWA T;
@@ -226,7 +223,7 @@ NEXT_cd:
     ?+9  ?+8 ; RSP_ ?+5; # .
     0    0   ; T   0; # .
 
-    NWA NWA; 
+    NWA NWA;
     CWA Z; Z NWA; n1 NWA; #NWA = CWA+1
     Z Z NEXT_cd;
 
@@ -268,7 +265,7 @@ _toR_cd:
     ?+9  ?+8 ; RSP_ ?+5; # .
     0    0   ; T   0; # .
 
-    
+
     # Drop TOS (NOS->TOS)
     ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: -@NOSP(Z-)
     TOS TOS; Z TOS; # copy NOS into TOS(+)
@@ -281,7 +278,7 @@ _fromR_cd:
     # GADGET: PUSH TOS
     TOS Z ;
     n1 NOSP_; #grow stack (NOSP_ goes closer to 0)
-    ?+11 ?+10; NOSP_ ?+D; # 
+    ?+11 ?+10; NOSP_ ?+D; #
     ?+C  ?+B ; NOSP_ ?+8; # .
     ?+9  ?+8 ; NOSP_ ?+5; # .
     0    0   ; Z   0; # .
@@ -293,14 +290,14 @@ _fromR_cd:
     TOS TOS; Z TOS;
 
     Z Z NEXT_cd
-    
+
 
 DUP_wd: ?
 DUP_cd:
     # GADGET: PUSH TOS
     TOS Z ;
     n1 NOSP_; #grow stack (SP_ goes closer to 0)
-    ?+11 ?+10; NOSP_ ?+D; # 
+    ?+11 ?+10; NOSP_ ?+D; #
     ?+C  ?+B ; NOSP_ ?+8; # .
     ?+9  ?+8 ; NOSP_ ?+5; # .
     0    0   ; Z   0; # .
@@ -331,7 +328,7 @@ SLOW_SWAP_cd:
 
     #Z holds -a
     #TOS holds +b
-    
+
     T T;     TOS T;
     TOS TOS; Z TOS;
 
@@ -339,11 +336,11 @@ SLOW_SWAP_cd:
     #T holds -b
 
     # GADGET: -!NOS(T) (dont change SP)
-    ?+11 ?+10; NOSP_ ?+D; # 
+    ?+11 ?+10; NOSP_ ?+D; #
     ?+C  ?+B ; NOSP_ ?+8; # .
     ?+9  ?+8 ; NOSP_ ?+5; # .
     0    0   ; T   0; # .
-    
+
     #Swapped
     Z Z NEXT_cd
 
@@ -355,7 +352,7 @@ SWAP_cd:
 
     #Z holds -a (-NOS)
     #TOS holds +b
-    
+
     # calculate NOS-TOS
     T T;     TOS T; #T Holds -TOS
     Z T; # T Holds NOS - TOS
@@ -365,8 +362,8 @@ SWAP_cd:
     #TOS holds +a
     #T holds a-b (NOS-TOS)
 
-   
-    ?+6  ?+5 ; NOSP_ ?+2 ; T 0; # GADGET: SUBNOS(T)  
+
+    ?+6  ?+5 ; NOSP_ ?+2 ; T 0; # GADGET: SUBNOS(T)
     #Swapped
     Z Z NEXT_cd
 
@@ -394,18 +391,18 @@ _2SWAP_cd:
 
     X X; Y Y; V V;
     # fetch next 3
-    ?+5 ?+4; NOSP_  ?+1; 0 V; # GADGET: -@NOS(V) 
+    ?+5 ?+4; NOSP_  ?+1; 0 V; # GADGET: -@NOS(V)
     i1 NOSP_; #shrink stack (now at 3OS)
-    ?+5 ?+4; NOSP_  ?+1; 0 Y; # GADGET: -@NOS(Y) 
+    ?+5 ?+4; NOSP_  ?+1; 0 Y; # GADGET: -@NOS(Y)
     i1 NOSP_; #shrink stack (now at 4OS)
-    ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: -@NOS(X) 
+    ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: -@NOS(X)
     # now  X=-a, Y=-b, V=-c
-    
+
     # 4OS becomes c, subtract (a-c)
     # 3OS becomes d, subtract (b-d) == (b-tos)
     # NOS becomes a, subtract (c-a)
     # TOS becomes b
-    
+
     T T; V Z; Z T; #T = -c
     X T; # T = a-c
     ?+6  ?+5 ; NOSP_ ?+2 ; T 0; # GADGET: SUB4OS(T), becomes c
@@ -429,7 +426,7 @@ ROT_wd: ? # ( a b tos -- b tos a )
     i1 NOSP_; #shrink stack (get to 3OS = a)
     ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: -@NOS(X)
     # NOSP points to third-on-stack
-    
+
     #3os becomes b, subtract (a-b)
     #nos becomes tos, subtract (b-tos)
     # a goes to TOS
@@ -453,7 +450,7 @@ _ROT_wd: ? # ( a b tos -- tos a b )
     i1 NOSP_; #shrink stack (get to 3OS = a)
     ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: -@NOS(X)
     # NOSP points to third-on-stack
-    
+
     #3os becomes tos, subtract (a-tos)
     #nos becomes a, subtract (b-a)
     #tos becomes b
@@ -525,11 +522,13 @@ RS0_wd: do_const  RS0_val: rstack_base
 #                    ARITHMETIC / CONTROL FLOW
 #
 # ================================================================
-# LIT 
+# LIT
 # -! +! @ !
-# 1+ 1- + - * / /MOD
-# = <> < > <= >=
-#
+# + - * /MOD
+# 1+ 1- NEG
+# TODO = <> < > <= >=
+# TODO 0= 0< 0<= 0> 0>=
+# TODO 2* >> << AND OR NOT
 
 # Reads from NWA, pushes to stack, advances NWA
 LIT_wd: ?
@@ -537,7 +536,7 @@ LIT_cd:
     # GADGET: PUSH TOS into stack
     TOS Z ;
     n1 NOSP_; #grow stack (SP_ goes closer to 0)
-    ?+11 ?+10; NOSP_ ?+D; # 
+    ?+11 ?+10; NOSP_ ?+D; #
     ?+C  ?+B ; NOSP_ ?+8; # .
     ?+9  ?+8 ; NOSP_ ?+5; # .
     0    0   ; Z   0; # .
@@ -573,7 +572,7 @@ _bang_wd: ? # (val addr - [*addr = val] )
     ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: POP(X-)
     i1 NOSP_; #shrink stack (SP_ goes more negative)
 
-    # Pop 3OS into TOS 
+    # Pop 3OS into TOS
     ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: POP(Z-)
     i1 NOSP_; #shrink stack (SP_ goes more negative)
     TOS TOS; Z TOS;
@@ -594,7 +593,7 @@ _plusbang_wd: ? # (val addr - [*addr += val] )
     ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: POP(X-)
     i1 NOSP_; #shrink stack (SP_ goes more negative)
 
-    # Pop 3OS into TOS 
+    # Pop 3OS into TOS
     ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: POP(Z-)
     i1 NOSP_; #shrink stack (SP_ goes more negative)
     TOS TOS; Z TOS;
@@ -611,7 +610,7 @@ _minusbang_wd: ? # (val addr - [*addr -= val] )
     ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: POP(X-)
     i1 NOSP_; #shrink stack (SP_ goes more negative)
 
-    # Pop 3OS into TOS 
+    # Pop 3OS into TOS
     ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: POP(Z-)
     i1 NOSP_; #shrink stack (SP_ goes more negative)
     TOS TOS; Z TOS;
@@ -622,6 +621,239 @@ _minusbang_wd: ? # (val addr - [*addr -= val] )
     ?+6  ?+5 ; P1 ?+2 ; Z 0; # GADGET: POKESUB(P1), *(-P1) -= Z
 
     Z Z NEXT_cd
+
+_plus_wd: ? #( a b -- a+b)
+    # ### Pop NOS into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    Z TOS; # TOS -= -a
+    Z Z NEXT_cd
+
+_minus_wd: ? #( a b -- a-b)
+    # ### Pop NOS into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    # Z holds -a
+
+    T T; TOS T; T Z; # Z holds b-a
+    TOS TOS; Z TOS; # TOS holds a-b
+    Z Z NEXT_cd
+
+NEG_wd: ? #( a -- -a)
+    T T;
+    TOS T; T Z;
+    TOS TOS; Z TOS;
+    Z Z NEXT_cd
+
+_1plus_wd: ? #( a -- a+1)
+    n1 TOS;
+    Z Z NEXT_cd
+
+_1minus_wd: ? #( a -- a-1)
+    i1 TOS;
+    Z Z NEXT_cd
+
+
+_times_exit: # We jump here once X==0
+    # NOTE: Z was clobbered before jump
+    TOS TOS; V Z; Z TOS; # Result in V(+), copy to T
+    Z Z NEXT_cd
+
+_times_wd: ? # (x y - x*y )
+
+    alu_B alu_B; n1 alu_B; # alu_B is always 1
+
+    # X and Y hold negatives, so ALU holds positives
+    X X ;  # X(-) holds A,
+    Y Y ;  TOS Y; # Y(-) holds B
+    V V; # Sum(+) in V
+
+    # Pop val(-) into X
+    ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: POP(X-)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+
+_times_loop:
+    alu_A alu_A; X alu_A; # alu(+) gets A
+
+#==== if X & 1, SUM += Y
+    T T; alu_and T ; # T = -(A&1)
+    T Z ?+3 # if A&1 <= 0, skip
+
+    Y V ; # else A&1 == 1, SUM(+) -= Y(-), add val to SUM
+    Z Z ; # unclobber Z
+
+#==== X >> 1, Y<<1
+    X X; alu_rs X; # X(-) = a>>1,
+
+    alu_A alu_A; Y alu_A; # alu(+) gets Y(-)
+    Y Y; alu_ls Y; # Y(-) = b<<1
+
+#==== if X == 0, exit
+    Z X ?+3         # if     X<= 0, nextif
+    Z Z ?+3         # else   X > 0, skip
+    X Z _times_exit # nextif X >= 0, so x == 0, so exit
+                    # else   x <> 0
+    Z Z _times_loop
+# else, jump loop:
+
+
+_divmod_exit: # We jump here once X==0
+    # W = 0
+    # X = remainder
+    # V(-) = quotient
+    # Y would be divisor>>1, but we exited early
+
+
+    # TODO: if P1, flip V, X
+    # P1 is -1, 0, or +1. 0 means no flip needed
+
+    # if p1 > 0, p1 -= 2
+    Z P1 ?+3    #if P1 <= 0, skip
+    i2 P1 ; # else (P1>0), P1-=2
+    # Now P1 is 0(noflip) or -1 (flip)
+
+    n1 P1 ; # Now is 1(noflip) or 0(flip)
+
+    #Quotient in V(-), Remainder in X(+)
+
+    Z P1 ?+3 # If P1=0 (flip)
+    Z Z ?+0F # else, skip
+        T T; V Z; Z T; V V; T V; Z Z;  # Flip V
+
+    # ### Push quotient (in V(-))  into NOS
+    n1 NOSP_; #grow stack
+    ?+11 ?+10; NOSP_ ?+D; # GADGET: NEG!NOS(T)
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; V   0; # .
+
+
+    # Remainder in X(+)
+    Z P1 ?+3 # If P1=0 (flip, Copy X-)
+    Z Z ?+09 # else, skip, copy X+
+        TOS TOS; X TOS; # Flip X, so Copy X- to TOS
+        Z Z NEXT_cd
+    # else
+        TOS TOS; X Z; Z TOS; # Remainder in X(+), copy to TOS
+        Z Z NEXT_cd
+
+_divmod_wd: ? # (x y - x/y x%y )
+
+    alu_B alu_B; n1 alu_B; # alu_B is always 1
+
+    # TODO: can optimize by assigning flipped X&Y, since
+    # we explicitly handle their signs anyway
+
+    # X and Y hold positives,
+    X X ;  # X holds A (remainder),
+    Y Y ; T T; TOS T; T Y; # Y holds B (divisor)
+    V V ; # Quotient(-) in V
+    W W; n1 W; # multiplier, starts at 1
+
+    P1 P1; # P1 will hold sign bit, = +1/-1 if negative, 0 if positive
+
+    # Flip Y to positive, if Y == 0, error out?
+    Z Y ?+3 # if Y <= 0: nextif
+    Z Z ?+12 # else Y>0: continue to endif (6 ops, 18words)
+    Y Z halt5 # nextif Y>=0 (Y==0) halt5, divide by 0
+    # nextelse: Y < 0: flip Y,
+        Y Y; T T; Z T; T Y; i1 P1; #flip Y, P1--
+    # endif
+    Z Z ;
+
+    # Pop val(+) into X
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: POP(Z-)
+    Z X; Z Z;
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+
+
+    # Flip X to positive, flip sign bit
+    X Z ?+0F #if X >= 0 skip (5ops, 15words=0x0F)
+    # else: X < 0
+        X X; T T; Z T; T X; n1 P1; #P1++
+    #endif
+    Z Z ;
+
+
+
+    # Lshift Y and multiplier until they hit the left side (<0)
+    # actually, only need to shift until Y >= X
+    # then Y-X >= 0, and won't overflow!
+    # Proof (consider 4bit)
+    #  X = 0b0111, Y = 0b0111, match, wont shift higher
+    #  X = 0b0111, Y = 0b0110, shifts up
+    #              Y = 0b1100, match, difference is 3, 0b0011
+    #  X = 0b0100, Y = 0b0011, shifts up
+    #              Y = 0b0110, match, difference is 2, 0b0010
+    #  X = 0b0101, Y = 0b0100, shifts up
+    #              Y = 0b1000, match, difference is 4, 0b0100
+    #
+_divmod_loop1:
+    # if Y >= X, break
+    Q1 Q1; Y Q1; # temp: Q1 = -Y
+    T T; X T; Q1 T; # T = Y-X
+    T Z ?+1B # if X-Y<=0 (Y>=X), break
+
+
+    #else: double Y, double mult
+    Z Z; Y Y; Q1 Y; Q1 Y; #12 words
+    W Z; W W; Z W; Z W; Z Z _divmod_loop1 # 15 words, total 27 = 0x1B
+
+    # endloop
+    Z Z;
+
+    # Now: since we've guaranteed both X and Y originally >0, Y wont have overflowed.
+    # Y may be negative, but Y-X >= 0
+
+    #Z Z halt6
+    alu_B alu_B; n1 alu_B; # Always shifting by 1
+
+_divmod_loop2:
+    #if Y <= X (Y-X <= 0)
+    #  X -= Y
+    #  Quot+= mult
+
+    Y X; X Z ?+C # X-=Y; if result >= 0 (i.e. Y was <= X), if succeeds
+        T T; Y T; T X;  # else, undo that
+        Z Z ?+6         # skip to endif
+    # (if succeeded)
+        Z Z; W V; # Quotient(-) += Mult
+    # endif
+
+    # Y >> 1, mult >> 1
+    # NOTE: if W<=0, exit
+    #          W can't be negative, since we have rightshifted it at least once
+    #          therefore we exit once it hits 0
+    T T; alu_A alu_A; W T; T alu_A; W W; T T; alu_ars T; T W _divmod_exit
+    T T; alu_A alu_A; Y T; T alu_A; Y Y;      alu_ars Z; Z Y;
+    Z Z _divmod_loop2
+
+
+
+
+#==== if X & 1, SUM += Y
+    T T; alu_and T ; # T = -(A&1)
+    T Z ?+3 # if A&1 <= 0, skip
+
+    Y V ; # else A&1 == 1, SUM(+) -= Y(-), add val to SUM
+    Z Z ; # unclobber Z
+
+#==== X >> 1, Y<<1
+    X X; alu_rs X; # X(-) = a>>1,
+
+    alu_A alu_A; Y alu_A; # alu(+) gets Y(-)
+    Y Y; alu_ls Y; # Y(-) = b<<1
+
+#==== if X == 0, exit
+    Z X ?+3         # if     X<= 0, nextif
+    Z Z ?+3         # else   X > 0, skip
+    X Z _divmod_exit # nextif X >= 0, so x == 0, so exit
+                    # else   x <> 0
+    Z Z _divmod_loop2
+# else, jump loop:
+
 # ================================================================
 #
 #                        I/O and STRINGS
@@ -649,7 +881,7 @@ NL_cd:
     nA OUT; Z Z NEXT_cd
 
 HALT1_wd: ?
-HALT1_cd: 
+HALT1_cd:
     0 0 halt1
 
 # ================================================================
@@ -668,7 +900,7 @@ TEST_STACK1_wd: do_colon
     LIT_wd 69 # i
     LIT_wd 78 # x
     LIT_wd 78 # x
-    DROP_wd _2DROP_wd # ( e l o H ) 
+    DROP_wd _2DROP_wd # ( e l o H )
     _ROT_wd # ( e H l o)
     _2SWAP_wd # ( l o e H )
     EMIT_wd
@@ -728,6 +960,31 @@ TEST_VARS_wd: do_colon # should emit: 0A 10 0A 0A 20
 
     EXIT_wd
 
+TEST_MATH_wd: do_colon #Should emit 23 00 03 04 46 fa   20
+                       #     then:  01 05 01 05 01 05 00 02 20 2A
+    LIT_wd 5 LIT_wd 7 _times_wd EMIT_wd # 5*7=35 (0x23)
+    LIT_wd 0 LIT_wd 3 _times_wd EMIT_wd # 0*3=0
+    LIT_wd 3 LIT_wd 1 _times_wd EMIT_wd # 3*1=3
+    LIT_wd 0FFFE LIT_wd 0FFFE _times_wd EMIT_wd #-2*-2, should be +4
+    LIT_wd 0FFF6 LIT_wd 0FFF9 _times_wd EMIT_wd #-A*-7, should be +70 (0x46)
+    LIT_wd 0FFFE LIT_wd 3 _times_wd EMIT_wd #-2*3, should be -6 (0xFFFA, emits fa)
+
+    SPACE_wd
+
+    LIT_wd 10 LIT_wd 3 _divmod_wd EMIT_wd EMIT_wd #dec16 3 /MOD
+    LIT_wd 0FFF0 LIT_wd 0FFFD _divmod_wd EMIT_wd EMIT_wd #-dec16 -3 /MOD
+
+    LIT_wd 0FFF0 LIT_wd 3 _divmod_wd #-dec16 3 /MOD , should be (-5div -1rem)
+    NEG_wd EMIT_wd NEG_wd EMIT_wd #should emit 01 05
+    LIT_wd 0A LIT_wd 5 _divmod_wd EMIT_wd EMIT_wd #0A 5 /MOD (exp: emit rem0 quot2)
+
+    SPACE_wd
+    LIT_wd 30 LIT_wd 2 _minus_wd LIT_wd 8 _minus_wd #dec 48 -2 -8 = dec38
+    _1plus_wd _1plus_wd LIT_wd 2 _plus_wd # dec38 +1 +1 +2 = decimal42 = 0x2A '*'
+    EMIT_wd
+
+    EXIT_wd
+
 # Should emit "H ii"
 TEST_wd: do_colon
 TEST_bd:
@@ -735,6 +992,7 @@ TEST_bd:
     #TEST_STACK2_wd SPACE_wd
     #TEST_RETSTACK_wd SPACE_wd
     #TEST_VARS_wd
+    TEST_MATH_wd
 
 
     HALT1_wd
@@ -749,7 +1007,7 @@ MAIN_wd: do_colon
 
 # If main returns, it will return here, so we can error out
 QUIT_wd: do_colon
-QUIT_bd: 
+QUIT_bd:
     MAIN_wd
     HALT1_wd
 
@@ -872,4 +1130,4 @@ forth_rstack_base_val: rstack_base
 #
 # ### Pop NOS into Z
 # ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
-# i1 NOSP_; #shrink stack (get to 3OS = a)
+# i1 NOSP_; #shrink stack
