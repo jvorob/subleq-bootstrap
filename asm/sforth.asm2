@@ -1469,6 +1469,111 @@ FIND_wd: do_colon # (strp - [dict_header or 0])
     # (0 strp) reached nullptr, return 0
     DROP_wd EXIT_wd
 
+
+DIGIT_cd_inval: #invalid character, return FF
+    TOS TOS; nF0 TOS; nF TOS;
+    Z Z NEXT_cd;
+
+DIGIT_cd_az:
+    # X holds char-'z' or char-'Z'
+    # 'Z' should be dec35, 'A' should be dec10
+    # Add dec35 (0x23),
+    n20 X; n3 X;
+    # Fall through to numdigit return
+    Z Z ?+3
+
+DIGIT_cd_09:
+    # X holds char-'9'
+    # Add 9, so '9' should be 9, '0' should be 0
+    n9 X;
+    TOS TOS; X Z; Z TOS;
+    Z Z NEXT_cd;
+
+
+DIGIT_hd: 0 0 5 "DIGIT"
+    # Parses an ascii character into a digit
+    # if char not in range [0-9a-zA-Z], outputs returns FF
+DIGIT_wd: ? # (ascii_char - digit_value )
+
+    X X; TOS Z; Z X; Z Z; # X(+) holds char
+
+    # switch (X) {
+    i20  X ;              #
+    iF   X DIGIT_cd_inval #  X<=2F
+    iA   X DIGIT_cd_09    #  X<=39, '0'-'9'
+    i7   X DIGIT_cd_inval #  X<=40
+    i10  X ;              #    (50)
+    iA   X DIGIT_cd_az    #  X<=5A  'A'-'Z'
+    i6   X DIGIT_cd_inval #  X<=60
+    i10  X ;              #    (70)
+    iA   X DIGIT_cd_az    #  X<=7A  'a'-'z'
+    Z    Z DIGIT_cd_inval #  X>7A
+
+    0d 0d 0d #should jump upward
+
+
+# helper:
+DROP_TO_neg1_wd: do_colon #( -1 [+num +num +num ] -- )
+    # Loop as long as TOS >= 0
+    _0lt_wd  _0BRANCH_wd 0FFFE #jump -2
+    EXIT_wd
+
+# Tries to parse strp as a number in the current BASE
+# If gets an out of range digit, fails
+# Handles leading -
+NUMBER_hd: 0 0 6 "NUMBER"
+NUMBER_wd: do_colon #(strp -- number 1  OR  0 )
+    STRCHARS_wd # (-1 [lastchar ... firstchar] )
+
+    # ==== PREPARE SIGN BIT on RS (0pos, 1neg)
+    LIT_wd 0 #start pos
+
+    # (-1 [chars] sign )
+    OVER_wd LIT_wd 2D _eq_wd # if starts with '-'
+    _0BRANCH_wd 004 #skip 3 (+4)
+        # IF '-': Drop hyphen, change sign bit to 1
+        SWAP_wd DROP_wd _1plus_wd
+        # ELSE
+    #THEN: Push sign bit to RS
+    _toR_wd
+
+    LIT_wd 0 #Start with total = 0
+
+    #BEGIN ( -1 [chars...] total )
+        OVER_wd _0ge_wd _0BRANCH_wd 16 # 0>= is 0 iff -1, jump exit (+dec22 wds, 0x16)
+        # WHILE
+
+        SWAP_wd DIGIT_wd # Parse digit ( -1 [...chars-1] total digit )
+
+        # If DIGIT >= BASE, error
+        DUP_wd BASE_wd _at_wd _ge_wd
+        _0BRANCH_wd 07 #skip over 6 wods (+7)
+            # IF digit >= base (-1 [chars] total digit )
+            _2DROP_wd
+            _fromR_wd # pop sign from RS (0 or 1)
+            DROP_TO_neg1_wd # Drop all remaining chars
+            #return  0
+            LIT_wd 0000 EXIT_wd
+        #THEN
+
+        # multiply digit into total
+        SWAP_wd BASE_wd _at_wd _times_wd _plus_wd
+        # (-1 [chars] total)
+
+        BRANCH_wd 0FFE8 # jump back dec24 words (-0x18)
+    # END, jump back up
+
+    # (-1 total)
+    # Apply sign bit (from RS)
+    _fromR_wd _0BRANCH_wd 2
+        # If sign
+        NEG_wd
+    #THEN
+
+    # return (total 1)
+    SWAP_wd _2plus_wd EXIT_wd
+
+
 # ================================================================
 #
 #                      TEST FUNCS AND MAIN
@@ -1669,6 +1774,18 @@ TEST_FIND_wd: do_colon #Takes input on STDIN: if valid word, should emit XT. Els
     FIND_wd CELLBYTES_wd EMIT_wd EMIT_wd
     EXIT_wd
 
+TEST_NUMBER_wd: do_colon #Takes input on STDIN. Parses as number, emits
+    TOKEN_wd
+
+    #STRCHARS_wd DROP_TO_neg1_wd EMIT_wd EMIT_wd EMIT_wd EMIT_wd
+
+    #LIT_wd 43 DIGIT_wd EMIT_wd #Parse 'C'
+
+    NUMBER_wd
+    EMIT_wd EMIT_wd
+
+    EXIT_wd
+
 # Should emit "H ii"
 TEST_wd: do_colon
 TEST_bd:
@@ -1684,7 +1801,9 @@ TEST_bd:
     #TEST_BRANCH_wd
 
     #TEST_TOKEN_wd
-    TEST_FIND_wd
+    #TEST_FIND_wd
+
+    TEST_NUMBER_wd
 
     HALT1_wd
 
@@ -1727,6 +1846,9 @@ forth_init_latest_val: QUIT_hd
 
     # Update latest to point to quit
     LATEST_val LATEST_val; forth_init_latest_val Z; Z LATEST_val; Z Z;
+
+    # Init BASE to 10
+    BASE_val BASE_val; nA BASE_val;
 
     # Preload first char into _C (we use it for peeking)
     C_ C_; IN C_;
