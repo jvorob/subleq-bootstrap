@@ -22,7 +22,6 @@
 # Low priority:
 # - Optimizations (1+, -!, etc)
 # - shifts, bitwise ops
-# - String optimization: CMOVE
 # - STRCHARS can just be a CMOVE into stack space, with special case for TOS
 #
 # LONG-TERM-PROJECT: NEG-OPTIMIZATION?
@@ -276,7 +275,54 @@ strcmp:
     X X; Z Z retsub
 
 
-# ======================= Primitives
+
+# ================= memcpy
+@600 memcpy:
+# P1(-) points to src
+# P2(-) point to dest
+# X(-) holds len to copy
+#
+# X will hold loop counter (-len)
+# W holds fetched char
+#
+# cSP will hold src ptr
+# cD1-3 will hold dest ptr
+
+    # Write ptrs into fetchloop code
+    623 623; P1 623;  # cmpSP+ = (P1)
+    626 626; P2 626;  # cmpD1+ = (P2)
+    627 627; P2 627;  # cmpD2+ = (P2)
+    62A 62A; P2 62A;  # cmpD3+ = (P2)
+    Z Z 638 #jmp to memcpy check, check first char
+
+@620 memcpy_loop:
+       W  W; #Fetch into W
+@623   0  W;  #   : cSP:_     W     #
+    # Put W into dest
+@626   0  0;  #   : cD1:_  cD2:_    #
+@629   W  0;  #   :     W  cD3:_    #
+
+    # advance ptrs (+ so inc)
+@62C n1 623; # CS1(+) ++
+@62F n1 626; # CD1(+) ++
+@632 n1 627; # CD2(+) ++
+@635 n1 62A; # CD3(+) ++
+
+
+
+# memcpy_check
+@638  n1 X memcpy_loop #   : $-1 X loop     # X++, if X<=0, jump strcmp_loop
+
+# stcmp_end_of_loop:
+# if we're here, we've successfully copied all the chars
+    Z Z retsub
+
+
+# ================================================================
+#
+#                     CORE FORTH PRIMTIIVES
+#
+# ================================================================
 
 @800
 NEXT_cd:
@@ -1094,7 +1140,7 @@ _divmod_loop2:
 #                        CONTROL FLOW
 #
 # ================================================================
-# = <> < >= 
+# = <> < >=
 # 0= 0<> 0> 0<= 0<
 # <= >
 # ( BRANCH 0BRANCH )
@@ -1259,11 +1305,10 @@ LW_0BRANCH_wd: do_const _0BRANCH_wd
 #                        I/O and STRINGS
 #
 # ================================================================
-# EMIT KEY
-# SPACE NL
+# KEY EMIT SPACE NL
 # TOKEN
-# STRCHARS
-# STR= TELL
+# STRCHARS STR= TELL
+# MEMCPY STRCPY
 # DIGIT NUMBER
 
 
@@ -1477,6 +1522,38 @@ STR_eq_wd: ? # (strp strp - ?equal)
 
 
 
+MEMCPY_hd: STR_eq_hd 0 6 "MEMCPY"
+MEMCPY_wd: ? # (len src dst --)
+# Copies len bytes from src to dst, moving upwards
+    # copy TOS(destp) into P2(-)
+    P2 P2; TOS P2;
+
+    ### Pop NOS(srcp) into P1
+    P1 P1;
+    ?+5 ?+4; NOSP_  ?+1; 0 P1; # GADGET: @NEGNOS(P1)
+    i1 NOSP_; #shrink stack
+
+    ### Pop 3OS(len) into X(-)
+    X X;
+    ?+5 ?+4; NOSP_  ?+1; 0 X; # GADGET: @NEGNOS(X)
+    i1 NOSP_; #shrink stack
+
+    ### Pop 4OS() into TOS
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(X)
+    i1 NOSP_; #shrink stack
+    TOS TOS; Z TOS; Z Z;
+
+    #jsr memcpy(len, src, dest) (return to NEXT_cd)
+    R R; ?+5 R; Z Z memcpy   NEXT_cd #JSR
+
+STRCPY_hd: MEMCPY_hd 0 6 "STRCPY"
+STRCPY_wd: do_colon # (src_strp destp -- ) copies string from src to dest
+    OVER_wd _at_wd # (src_strp destp len)
+    _1plus_wd # We want to copy len+1 words
+    _ROT_wd #bury the len field (len srcp destp)
+    MEMCPY_wd EXIT_wd
+
+
 DIGIT_cd_inval: #invalid character, return FF
     TOS TOS; nF0 TOS; nF TOS;
     Z Z NEXT_cd;
@@ -1497,7 +1574,7 @@ DIGIT_cd_09:
     Z Z NEXT_cd;
 
 
-DIGIT_hd: STR_eq_hd 0 5 "DIGIT"
+DIGIT_hd: STRCPY_hd 0 5 "DIGIT"
     # Parses an ascii character into a digit
     # if char not in range [0-9a-zA-Z], outputs returns FF
 DIGIT_wd: ? # (ascii_char - digit_value )
@@ -1836,6 +1913,21 @@ TEST_NUMBER_wd: do_colon #Takes input on STDIN. Parses as number, emits
 
     EXIT_wd
 
+TEST_STRCPY_wd: do_colon #Should emit "Hello"
+    LITSTR_wd 5 "Hello"
+    #DUP_wd EMIT_wd _at_wd EMIT_wd #debug: show ptr, show len
+
+    DP_wd _at_wd
+    STRCPY_wd #copy token to DP
+
+    #DP_wd _at_wd _at_wd EMIT_wd
+
+    #DP_wd _at_wd _at_wd EMIT_wd #DEBUG show len (DP@@)
+    #DP_wd _at_wd _1plus_wd _at_wd EMIT_wd #DEBUG show len (DP@@)
+    DP_wd _at_wd TELL_wd
+
+    EXIT_wd
+
 # Should emit "H ii"
 TEST_wd: do_colon
 TEST_bd:
@@ -1851,9 +1943,10 @@ TEST_bd:
     #TEST_BRANCH_wd
 
     #TEST_TOKEN_wd
-    TEST_FIND_wd
+    #TEST_FIND_wd
 
     #TEST_NUMBER_wd
+    TEST_STRCPY_wd
 
     HALT1_wd
 
@@ -1889,6 +1982,7 @@ forth_canary_val: 0CAFE
 forth_stack_base_val: dstack_base #(+)
 forth_rstack_base_val: rstack_base
 forth_init_latest_val: QUIT_hd
+forth_init_dp_val: 3000
 
 @2100 # forth_init
     # write 0d to entry so that we halt if we start executing at 0
@@ -1899,6 +1993,9 @@ forth_init_latest_val: QUIT_hd
 
     # Init BASE to 10
     BASE_val BASE_val; nA BASE_val;
+
+    # Init DP
+    DP_val DP_val; forth_init_dp_val Z; Z DP_val; Z Z;
 
     # Preload first char into _C (we use it for peeking)
     C_ C_; IN C_;
@@ -1927,7 +2024,7 @@ forth_init_latest_val: QUIT_hd
 
 
 #...
-#@3000 is strtab, grows upward
+#@3000 is dict, grows upward
 
 
 # ========== GADGETS / CODE SNIPPETS
