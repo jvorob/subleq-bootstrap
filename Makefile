@@ -3,9 +3,9 @@ MAKEFLAGS += --warn-undefined-variables
 
 
 # C/C++ compiler
-CC = gcc  
+CC = gcc
 
-# Compiler and linker flags (warning levels, optimisation level, 
+# Compiler and linker flags (warning levels, optimisation level,
 # include debugging symbols, add include search path, add library search path)
 CFLAGS = -Wall -std=gnu11
 LDFLAGS = -L./src/libs
@@ -49,7 +49,10 @@ $(objdir)/%.o: $(srcdir)/%.c
 
 
 .PHONY: tower
-tower: asm1.bin
+tower: asm2.bin
+
+asm2.bin: asm/asm2.asm1  asm1.bin
+	./sleqrun asm1.bin <$< >$@
 
 asm1.bin: asm/asm1.asm1  asm1_bs.bin
 	./sleqrun asm1_bs.bin <$< >$@
@@ -73,26 +76,33 @@ hex1.bin: asm/hex1.hex1 hex1
 	./hex1 <$< >$@
 
 # ===== Forth?
-sforth.bin: asm/sforth.asm1 asm1.bin
-	./sleqrun asm1.bin <$< >$@
+sforth.bin: asm/sforth.asm2 asm2.bin
+	./sleqrun asm2.bin <$< >$@
 
 
 # ========== TESTS
 .PHONY: test
-test: test_asm1_bin test_too_many_labels test_duplicate_labels
+test: test_asm2_bin test_asm1_bin test_too_many_labels test_duplicate_labels
+
+# Tests "quoted strings" by compiling hello.asm2
+.PHONY: test_asm2_bin
+test_asm2_bin: asm2.bin sleqrun
+	@./sleqrun $< <asm/hello.asm2 >$(testdir)/hello_asm2_bin.out 2>/dev/null
+	@diff -q $(testdir)/hello_asm2_bin.out $(testdir)/hello_asm2_bin.expected || \
+		echo "Test $@ failed"
 
 .PHONY: test_asm1_bin
 test_asm1_bin: asm1.bin sleqrun
 	@./sleqrun asm1.bin <asm/hello.asm1 >$(testdir)/hello_asm1_bin.out 2>/dev/null
 	@diff -q $(testdir)/hello_asm1_bin.out $(testdir)/hello_asm1_bin.expected || \
-		echo "Test $@ failed"	
+		echo "Test $@ failed"
 
-.PHONY: test_too_many_labels 
+.PHONY: test_too_many_labels
 test_too_many_labels: $(testdir)/test_too_many_labels.asm1 asm1.bin
 	@./sleqrun asm1.bin <$< 2>/dev/null >/dev/null ; exit_code="$$?"; \
 	if [ $$exit_code -ne 5 ]; then \
 		echo "Test $@ failed, expected to halt with code 5"; \
-	fi 
+	fi
 
 .PHONY: test_duplicate_labels
 test_duplicate_labels: $(testdir)/test_duplicate_labels.asm1 asm1.bin

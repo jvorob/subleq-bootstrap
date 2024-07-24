@@ -1,0 +1,53 @@
+#Hello world program
+#Reimplented in asm2
+#
+#Copies bytes from string until it hits a null,
+#text string is stored as 0041, 0020, etc
+#prints to stdout
+
+# ============ Header
+
+#Basic vars & entrypoint
+Z:0 
+T:0  
+_entry:200
+Z2:0      
+
+@4 i1: 1  
+@5 n1: 0FFFF  
+
+
+@8 # IO & ALU
+IN:0  OUT:0  _alu_A:0  _alu_B:0
+
+@C 0 halt:0 0 0D
+
+@10 #ALU Outputs
+#  & | ^ _   << >> _ _
+   0 0 0 0   0  0  0 0
+  
+#Unsaved registers
+@20   X:0 Y:0 V:0 W:0    P1:0 P2:0 Q1:0 Q2:0
+
+@100 str:
+# "Hello World\n\0"
+"Hello World" 0A 0   # Suffix is "\n\0"
+
+
+str_addr: str #constant pointint to str
+# ========== Main
+# ptr in P1
+@200 main:
+
+    P1 P1; str_addr P1; #Point P1(-) at str
+
+loop:
+
+    # Fetch V(-) from P1
+    V V; ?+5 ?+4; P1 ?+1; 0 V; # GADGET:FETCH V = -*(-P1)
+
+    V Z halt   Z Z; # halt  if '\0'
+
+    V OUT;       # put char
+    i1 P1 loop   # adv ptr (dec), loop if >0 (always)
+

@@ -1,0 +1,866 @@
+# Upgrading to asm2
+# - Adds "strings"
+# - TODO: add ~ for negatives?
+#
+# === Asm2 Spec:
+# Like hex1, handles hex literals and '#' single-line comments
+# - NOTE: new to asm1: hex literals must start with 0-9,
+#         e.g. 0FACE instead of FACE, 0A instead of A
+# Like hex2, handles '?' and '@'
+# - ? outputs address of next word
+# - @1000 pads file out to address with 0x1000 with pad words
+# Like hex3, handles '?+XX'
+# - ?+1F00 outputs next word address +1F00 (wraps at int_max)
+#
+# Asm1 features:
+# - label:    #create label here
+# - label     #insert value of label
+#  # labels must start with [a-zA-Z_], continue with [a-zA-Z_0-9]
+#  # bonus feature: ';' also works as '?'.
+#        (would eventually tie into understanding ops, but for now it's just more readable)
+#
+# - errors out with halt5 if symbol table overflows
+# - errors out with halt6 if defining a duplicate symbol
+#
+# Asm2 features:
+# - Supports "strings"
+#
+
+## TODO Checklist
+# - add initializer to reset entry to halt (catch runaway nops)
+# - Add ~ (negate next outputted word?)
+# - Add % (change pad word?)
+#      - can use %[literal] to set pad word used by @. (e.g. %20 will pad with spaces)
+# - Rethink register conventions?
+# - DONE add exist check to not make duplicate labels
+# - DONE finish refactoring intern_string and tables code to use asm1 syntax
+# - DONE add overflow check to symbol table (only has x200 words of space)
+
+
+# ===== NOTES ON MEMORY LAYOUT, CALLING CONVENTIONS, ETC
+# = Notes on signedness:
+# In memory strings are (+)
+# In vars, chars are usually (-)
+# In memory values are usually (-) (so + when read)
+# Pointers in vars are usually (-) (so + when peeked/poked)
+# Pointers in globals are usually (+) (so - when they go into vars?)
+#
+# = Notes on register conventions:
+# ??
+#
+# = Notes on call/return conventions:
+# ??
+
+# =========  HEADER
+
+@0 # Z T entry       P1  M1  0 0
+Z:0
+T:0
+entry: 2100
+
+# small constants
+@4    1
+@5    0FFFF
+
+
+@8 # IO ports
+IN: 0
+OUT: 0
+alu_A: 0
+alu_B: 0
+
+# Uninitialized memory is 0d
+# If we execute 0d 0d 0d, we'll clear 0d and jump here
+# From here, jump to halt7 (0106) to catch the error
+@0D   0 0 0106
+
+@10 #ALU outputs
+# & | ^ _   << >> _ _
+alu_and: 0
+alu_or: 0
+alu_xor: 0
+0
+alu_ls: 0
+alu_rs: 0
+
+
+# ========  REGISTERS AND CO.
+
+
+@20 #Unsaved registers
+X:0 Y:0 V:0 W:0
+P1:0 P2:0 Q1:0 Q2:0
+
+#Saved registers (only modify these if you're top-level, or save them first)
+#(TODO)
+@28 #
+      0  0  0  0     0  0  0   @2F R: 0
+
+@30 #Global vars (_ indicates it's negated)
+C_:0  N:0  offset_:0
+
+#C is last char read (-)   (treated as first char of input)
+#N is where read_num puts its result (+)
+#R is retval: address to return to
+#offset is current offset in the binary (-)
+
+
+@38 #More vars
+#(next new string in strtab goes at strtab_end)
+strtab_base: 3000
+strtab_end: 3000
+strtab_max: 0F000
+
+#  table_base table_size
+@3B
+table_base: 0E00
+table_size: 0
+table_max: 0FF8
+# code starts at 1000, warn if we get close
+
+
+
+# ======== Small integer constants:
+
+@40
+#4_: Positive ints: 0-F
+i0: 0  i1: 1  i2:  2 i3:  3 i4:  4 i5:  5 i6: 6  i7:  7
+i8: 8  i9: 9  iA: 0A iB: 0B iC: 0C iD: 0D iE: 0E iF: 0F
+
+@50
+#5_: Negative ints: -0 - -F
+    00000 n1: 0FFFF n2: 0FFFE n3: 0FFFD n4: 0FFFC n5: 0FFFB n6: 0FFFA n7: 0FFF9
+n8: 0FFF8 n9: 0FFF7 nA: 0FFF6 nB: 0FFF5 nC: 0FFF4 nD: 0FFF3 nE: 0FFF2 nF: 0FFF1
+
+@80
+#8_: 00-F0 (tens)
+      0  i10: 10  i20: 20  i30: 30  i40: 40  i50: 50  i60: 60  i70: 70
+i80: 80  i90: 90  iA0: 0A0 iB0: 0B0 iC0: 0C0 iD0: 0D0 iE0: 0E0 iF0: 0F0
+
+@90
+#9_: (-00) - (-F0)
+     00000 n10: 0FFF0 n20: 0FFE0 n30: 0FFD0 n40: 0FFC0 n50: 0FFB0 n60: 0FFA0 n70: 0FF90
+n80: 0FF80 n90: 0FF70 nA0: 0FF60 nB0: 0FF50 nC0: 0FF40 nD0: 0FF30 nE0: 0FF20 nF0: 0FF10
+
+
+
+# ======== Misc jump spots
+
+@0D0 #error_page
+halt0:   0  0 0D0    #D0:   halt0 #success
+halt1:   1  1 0D3    #D3:   err: halt1 #unrecognized char
+halt2:   2  2 0D6    #D6:   err: halt2 # @LOC goes backwards
+halt3:   3  3 0D9    #D9:   err: halt3 #seek assert err
+halt4:   4  4 0DC    #DC:   err: halt4 # uninitialized label
+
+
+@0F0 retsub:
+ ?+7 ?+6    ?    #
+   R ?+3    ?    #set Q = -R
+   Z   Z  0FF    #jmp -R  (FF temp, gets Q)
+
+
+
+#more errors
+@0100 halt5: 5 5 halt5 # err: halt5 # strtab overflow
+@0103 halt6: 6 6 halt6 # err halt6: #defining duplicate label
+@0106 halt7: 7 7 halt7 # err, jumped to uninitialized memory
+      halt8: 8 8 halt8 # err, unexpected EOF (within string?)
+
+# ======================= Primitives
+
+
+# Parses a number from stdin, (first char in C)
+# Result stored in N
+# Returns to R at first non-digit char, leaves that char in C
+#TODO: generate err on overflow
+
+@800 read_num:  #  #doesnt set R, will return through output_num
+   N  N   ?    #   : N N (clear N on first entry)
+
+@803 read_num_continue:
+# number so far stored in N
+
+X X; C_ X; # X+ := next char
+# keep parsing: switch stmt: of next input char
+  i20  X ;      #   : $20 X
+  iF   X retsub #   :  $F X return     #<=2F
+  iA   X 833    #   :  $A X num_dig    #<=39, '0'-'9'
+  i7   X retsub #   :  $7 X return     #<=40
+  i6   X 830    #   :  $6 X num_alpha  #<=46  'A'-'F'
+  i10  X ;     #   : $10 X
+  iA   X retsub #   :  $A X return     #<=60
+  i6   X 830    #   :  $6 X num_alpha  #<=66  'a'-'f'
+   Z   Z retsub #   :   Z Z return     #>66
+
+#if alpha, value is X + F
+#if digit, value is X + 9
+@830 num_alpha:
+    n6 X;  # ($-6)   X += 6
+@833 num_digit:
+    n9 X;  # ($-9)   X += 9
+
+# now X is value(+) of this digit
+# Shift N up 1 hex digit (4 bits)
+alu_A alu_A;   N alu_A; # A := N
+alu_B alu_B;  54 alu_B; # B := 4  (sub $-4)
+N N ?  alu_ls N ?      # N := N << 4
+# (negativeness wouldn't matter if it wasn't overflowing anyway)
+
+# Add in X as bottom digit
+X Z; Z N; #N += X
+
+# Continue
+C_ C_ ?
+IN C_ ? # getChar()
+Z Z read_num_continue # keep looping
+
+
+
+@900 put_num: #===== subroutine
+#   print out contents of N, little-endian,
+#   return to R
+
+alu_A alu_A;   N Z; Z alu_A; Z Z;  # alu_A := N
+alu_B alu_B;   nF0 alu_B; nF alu_B; # alu_B := FF
+alu_and Z; Z OUT; Z Z;             # putchar(N & FF)
+
+alu_B alu_B;  n8 alu_B;  # alu_B := 8
+alu_rs Z; Z OUT; Z Z;    # putchar(N >> 8)
+
+i1 offset_; #advance offset(-), so dec
+Z Z retsub
+
+
+
+@A00 read_label:  #=====
+#  reads a label: [0-9a-zA-Z_]*
+#  writes string to memory at strtab_end
+#  as usual: str[0] is len, chars from str[1]..str[len]
+
+# Y is len so far
+# V(-) is ptr to place next char at
+
+  Y Y; # clr Y
+  V V; strtab_end V; 4 V; # V = -(strtab_end + 1), leave 1 word for len field
+
+read_label_loop:  # (Tests if C is a valid label char)
+    X X; C_ X; # X := + next char
+
+    # switch(X)
+    i20  X   ?   #   : $20 X
+    iC   X 0B00  #   :  $C X end        #<=2C
+    i3   X 0B00  #   :  $3 X end        #<=2F
+    iA   X 0A80  #   :  $A X continue   #<=39, '0'-'9'
+    i7   X 0B00  #   :  $7 X end        #<=40
+    i10  X   ?   #   : $10 X
+    iA   X 0A80  #   :  $A X continue   #<=5A  'A'-'Z'
+    i4   X 0B00  #   :  $4 X end        #<=5E
+    i1   X 0A80  #   :  $1 X continue   #<=5F  '_'
+    i1   X 0B00  #   :  $1 X end        #<=60
+    i10  X   ?   #   : $10 X
+    iA   X 0A80  #   :  $A X continue   #<=7A  'a'-'z'
+    Z    Z 0B00  #   :   Z Z end        #>7A
+
+@A80 read_label_continue:
+    # C(-) is the right char, we want to write it to V
+    # Poke inverts: Poke C, so that in-mem is (+)
+
+    # GADGET: POKE: *(V-) = -C
+    ?+11 ?+10;  V ?+D;  # set J
+    ?+C  ?+B ;  V ?+8;  # set K
+    ?+9  ?+8 ;  V ?+5;  # set L
+    0    0   ; C_   0;  # J K; (_) L
+
+    i1 V; # Advance ptr(-) V (actually dec)
+    n1 Y; # Inc length
+
+    # advance to next char
+    C_ C_; IN C_;
+    Z Z read_label_loop
+
+
+@B00 read_label_end:
+    # We've read all the characters we need
+    # Now write the length
+    V V; strtab_end V; # get ptr(-) to start of string
+
+    # GADGET: POKE: *(V-) = -Y
+    ?+11 ?+10;  V ?+D;  # set J
+    ?+C  ?+B ;  V ?+8;  # set K
+    ?+9  ?+8 ;  V ?+5;  # set L
+    0    0   ;  Y   0;  # J K; (_) L
+
+    Z Z retsub
+
+
+
+
+@0E00 #E00-FFF is the symbol table
+# X X X X
+
+# NOTE: table_max is at 0FF8, if we reach that we error out to avoid clobbering
+
+# ======================= String table functions
+#
+
+@1000 intern_string: #==========
+# String to be checked int at strtab_end (@x39)
+#
+# strtab runs from strtab_base (@x38), to before strtab_end
+# each str has a length field, so to walk the table just advance by length each time
+#
+# Interns the str at strtab_end
+# If needed, encloses it in the table and updates strtab_end
+# returns ptr to it in X(-)
+#
+# All strings used are formatted as len,str
+# Len is length of just the str, so full size is len+1
+#
+# Alg: walk table, as long as curr ptr is < strtab_end
+# strcmp curr str ptr with strbuff
+#
+#  Vars:
+#  X  holds len of test str (curr iter in loop) (clobbered)
+#  Y- holds len of test str
+#
+#  V  holds len of new str being interned
+#  W clobbered
+#
+#  P1 - points to curr str (in strtab walk)
+#
+
+
+    # V holds len of str to intern (at strtab_end[0])
+    T T; strtab_end T; # T pts(-) to len field of new str
+    V V; ?+5 ?+4; T ?+1; 0 V; # GADGET: fetch -*T into V, == len+
+
+    # Pointer (P1-) starts at strtab_base
+    P1 P1; strtab_base P1;
+
+
+    Z Z 1020 # link to loop
+@1020 intern_string_loop:
+
+    #=== Check if at end of table (P1 >= strtab_end), exit
+    # note: both ptrs are negative
+    T T; strtab_end T; P1 T; # T := P1+ - strtab_end+ (both ptrs are negative)
+
+    T Z 1100  Z Z; # if P1 >= strtab_end, jmp end_of_tab
+
+
+    #=== Not at end, test next string
+
+    # Get next str's len into X and Y
+    X X; ?+5 ?+4; P1 ?+1; 0 X; # GADGET: fetch -*P1 into X, == len+
+    Y Y; X Z; Z Y; Z Z;        # Y := len+
+
+
+    # V (len of str being interned) should == X (len of curr str in strtab loop)
+     V X ?+3  # V X ?+3        #  X-V <=0
+   Z   Z  ?+3 #   : Z Z ?+3        #
+   X   Z 1080 #   : X Z strcmp     #  V-X <= 0  (so X == V)
+
+
+# ELSE: lengths didn't match, clear Z and continue
+   Z   Z 1060 #   : Z Z       #
+@1060 # intern_string_continue
+#advance P1 ahead by len (Y) + 1, (actually sub since pointer -)
+   i1 P1   ?  #   : $1 P1          #
+   Y  P1   ?  #   : Y  P1          #
+   Z   Z intern_string_loop #   : jmp loop       #
+
+
+
+@1080 # strcmp:
+intern_string_strcmp:
+# We have two strings, the lengths matched
+# Y+ holds len of loop iter str (P1 points to it)
+# V+ holds len of new str       (strtab_end points to it)
+#
+# X will hold loop counter (-len)
+# W: tmp, test char
+# cP1 will hold ptr to curr char of iter str
+# cP2 will hold ptr to curr char of new-interning str
+
+# lengths match, do strcmp
+
+    X X; Y X; # X- = len
+    n1 X;     # X++ ( len-- )
+
+10AC 10AC; P1 10AC;  # cmpP1+ = (P1)  (loop skips len field)
+
+strtab_end Z   ?  #   : strtab_end Z   #
+10AF 10AF  ?  #   : CP2 CP2        #
+   Z 10AF  ?  #   : Z CP2          # cmpP2+ = strtab_end
+   Z   Z 10A0 #   : Z Z loop       #
+
+
+@10A0 #strcmp_loop:
+# advance ptrs (+ so inc)
+   n1 10AC; # CP1(+) ++
+   n1 10AF; # CP2(+) ++
+
+##   #fetch next char of each string into W, T
+        T T; W W;
+@10AC   0  W;  #   : cP1:_ W        #
+@10AF   0  T;  #   : cP2:_ T        #
+                                   # W = *cP2 - *cP1
+   T   W  ?+3 #   : T W ?+3        #
+   Z   Z  ?+3 #   : jmp ?+3        #
+   W   Z 10C0 #   : W Z strcmp_continue  # if  W == 0, chars matched, cmp next char
+   Z   Z 1060 #   : Z Z is_continue  # else, string mismatch, try next str
+
+@10C0 #strcmp_continue: #chars matched, keep checking rest of str
+   n1 X 10A0 #   : $-1 X loop     # X++, if X<=0, jump strcmp_loop
+
+# stcmp_end_of_loop:
+# if we're here, we've successfully matched all the chars
+# return ptr to current string in X-
+   X X; P1 Z; Z X; # X(-) = P1(-)
+   Z Z retsub
+
+
+
+@1100
+#intern_string_end_of_tab
+# we got to the end of the table with no match
+# need to intern the new str, return ptr to it in X
+# V+ holds len of newly-interned str
+   Z  Z; #  clear Z from pre jump
+
+# prep pointer to return
+   X  X; strtab_end  X;  #  : strtab_end+ X-   # store pointer
+
+# advance end of table by len of string + 1  (actually inc this time, end ptr is +)
+   T T; V T; i1 T;  #  T = (-)  V+1
+   T strtab_end;    #  strtab_end += V + 1
+
+   Z Z retsub
+
+
+
+@1200 table_insert: #=====
+# Inserts (X, Y) into table (they go in negated)
+# increments table size by 2
+# clobbers: X, Y, V, P1
+
+# First: need to recursively call table_lookup
+#=== save X, Y, R
+    Z Z ?+3 #skip slots
+    ti_tmpX: 0 ti_tmpY: 0 ti_tmpR: 0
+
+    ti_tmpX ti_tmpX; X ti_tmpX;
+    ti_tmpY ti_tmpY; Y ti_tmpY;
+    ti_tmpR ti_tmpR; R ti_tmpR;
+
+#jsr table_lookup(X)
+R R; ?+5 R; Z Z 1300  ?
+
+Z Z ;
+Z Y ?+3   # Y<= 0, label not found, continue
+Z Z halt6 # else, lookup returned 1, duplicate label, halt
+
+# load X, Y, R
+    X X; ti_tmpX X;
+    Y Y; ti_tmpY Y;
+    R R; ti_tmpR R;
+
+
+  P1 P1;
+  table_base P1;
+  table_size P1;
+  table_size P1; # P = -(TB + 2*TS)
+                              # now want to put X at *(P-)
+
+# P(-) now points to next free slot in the table
+# GADGET: POKE:
+  ?+11 ?+10; P1 ?+D; # *(P1-) = -X
+  ?+C  ?+B ; P1 ?+8; # .
+  ?+9  ?+8 ; P1 ?+5; # .
+  0    0   ; X    0; # .
+
+#Now Y goes in the next table slot
+   i1  P1;  # $1 P1
+
+# GADGET: POKE:
+  ?+11 ?+10; P1 ?+D; # *(P1-) = -Y
+  ?+C  ?+B ; P1 ?+8; # .
+  ?+9  ?+8 ; P1 ?+5; # .
+  0    0   ; Y    0; # .
+
+# Check if we've overflowed the table
+# If P1 >= table_max, error out
+    T T; table_max T; # T = -table_max
+    P1 T ?+3 # if (P1-T)<=0 continue
+    Z Z halt5 # else, (P1-T)>0, halt5
+
+
+#Done, inc number of entries
+   n1 table_size; # Inc TS
+   Z Z retsub
+
+
+@1300 table_lookup: #=====
+
+# Searches for key "X" in table
+# Returns value in X
+# Y holds 0 if err, 1 if success
+#
+# P1 holds table walk ptr
+# V loop ctr
+#
+#
+  V V; table_size V;    # V = -TableSize
+  P1 P1; table_base P1; # P = - TBase
+  Z Z 1340 # : z z looptest (jump into test)
+
+# we only want to loop as many times as table_size,
+# then fall through to "not found"
+#each time P -=2
+#If *(P-) == X, found
+# Loop invariants: when entering at top: will do body (-V) + 1 times
+# Loop invariants: when entering at looptest: will do body (-V) times
+# P(-) points to current entry in symtab to test
+# X(+) is target strp
+# V is counter == neg length of table
+
+@1320 table_search_loop:
+
+# fetch next string ptr into Y
+Y Y; ?+5 ?+4; P1 ?+1; 0  Y; # GFETCH_SUB: Y = *(-P)
+
+# Compare X to Y
+# NOTE: table contents are (-), so Y+
+
+# If X == Y, jmp tsearch_found
+   X   Y ?+3  #   # check X == Y
+   Z   Z ?+3  #   #
+   Y   Z 1360 #   : Y Z tsrch_found   # if Y-X == 0, table entry found
+
+# else, continue table walk
+  i2  P1;  # P -= 2 (advance to next symtab entry)
+   Z  Z 1340 # jmp looptest
+
+@1340 #looptest:
+   n1 V 1320 #   : $-1 V loop # V++, JLEQZ loop
+
+#tsearch_notfound: (we got to end of table with no match)
+   Y Y;  # return Y=0 (err), X=0 (null value)
+   X X retsub
+
+@1360
+#tsearch_found:
+           # P(-) is at matching sym_entry.key
+   i1 P1;  # advance P(-) to sym_entry.value
+
+# Fetch value for symbol into X: X = -*(-P)
+    X X; ?+5 ?+4; P1 ?+1; 0  X;
+
+    Y Y; n1 Y;
+    Z Z retsub # return Y=1 (success), X= (symbol value)
+
+
+
+# ======================= Parser Functions
+# Handle input, return to main loop
+
+@1800 parse_comment: #====
+# keep looping until \n, then go to handle_char
+# Now optimized for common case, if char>'a', runs in 3 steps
+    # Drop char ('#')
+    C_   C_    ?  #   C   C
+
+    # If >$A (\n), skip
+    nB C_  ?  #   $-B C
+    IN C_  parse_comment # C = $B - getChar(); if C<=0, then char >$a
+
+    # if here, char gotten is >$A ('\n')
+    iB  C_;    # undo shift to char
+    X X; C_ X; # X := +char
+
+    n1 X halt0
+    # if < 0, EOF
+
+    # if < $A  ('\n') ignore
+    iA    X  parse_comment #  $A   X comment2  #subtract 1 + 9.   If LEQ, X < '\n', loop
+
+    # char == '\n', end of comment
+    Z Z 2000 #handle_char
+
+
+
+@1880 parse_litnum: #====
+# (encountered [0-9] in src, indicates number literal, parse it to end)
+   R R ?  ?+5 R ?  Z Z read_num  ? #JSR (parse num into N)
+   R R ?  ?+5 R ?  Z Z put_num   ? #JSR (outputs it)
+   Z   Z  2000  #   : jmp back to handle_char
+
+
+
+
+@1900 parse_seekahead: #===
+# Encountered '@' in source
+# Next must be number, parse it
+# Skip ahead to that offset in the file, outputting '000D'
+# If seeking backwards, error out
+
+    C_ C_; IN C_; #getchar to drop C = '@'
+
+    R R; ?+5 R; Z Z read_num   ? #JSR (parse num into N)
+
+    #target addr in N (+)
+    #If (target < offset), halt2  (seeking backwards is a bug)
+    X X; offset_ X; # X+ := offset
+    N X ?+3      # if offset <= N, continue
+    Z Z halt2    # else fail (seeking backwards is an err)
+
+    # Loop X times, outputing 000D. (If X==0, jumps to end and breaks)
+
+    Z Z 1949   #seek_looptest  (jump into loop test)
+
+@1940 seek_loop: #(output a halt 000D) Runs as long as X<0
+    nD OUT; Z OUT; # putword(000D)
+    i1  offset_;    # advance offset- (actually dec)
+@1949 seek_looptest:
+    n1 X seek_loop  # loop while ++X LEQZ, or while X++ LTZ
+
+    # Assert offset == N
+    T T; offset_ T; # T := + offset
+    N T ?+3   Z Z halt3 # if N >= offset continue else halt
+    T Z ?+3   Z Z halt3 # if N <= offset continue else halt
+
+    Z Z 2000 # return to main loop
+
+
+
+
+@1A00 parse_putoffset: #======
+# handles '?'
+# ? on its own puts address of next byte
+# '?+NUM' puts next byte + NUM
+    N N; # N is the offset in case we get ?+XX, by default is 0
+    C_ C_; IN C_; # getchar, (drops the '?')
+
+    #test if next char == "+"
+    X X; C_ X;
+    # switch (X) {
+    i20  X   ?   #   : $20 X
+    iA   X 1A60  #   : $A X put_offset_finish   #X <=2A
+    i1   X 1A40  #   : $1 X put_offset_plus     #X <=2B  '+'
+     Z   Z 1A60  #   : Z Z  put_offset_finish   #X  >2B
+
+@1A40 put_offset_plus: # we have '?+...'
+    C_ C_; IN C_; #getchar (drop the plus sign)
+    R R; ?+5 R; Z Z read_num   ? #JSR (parses number into N)
+
+    Z Z 1A60
+@1A60 #put_offset_finish:
+    #Now N is the delta, C is next char to be read
+    #Ouput offset + 1(next loc), + delta (N)
+
+    offset_ N; # N += offset(+)
+    n1 N; # N++
+
+    R R; ?+5 R; Z Z put_num   ? #JSR (outputs N: offset + 1 + delta)
+    Z Z 2000 # return to main loop
+
+
+@1B00 parse_label: #=====
+# Encountered a alpha char [a-zA-Z_]  (since idents cant start with digits)
+# Parses a label, and either stores the curr offset or outputs it
+# (depending on 'label' or 'label:')
+# TEMP: for now it'll just echo the label I guess?
+
+    R R; ?+5 R; Z Z read_label   ? #JSR
+    R R; ?+5 R; Z Z intern_string   ?  #JSR
+    # X- now points to interned string
+
+    # check if label followed by colon
+
+    Y Y; C_ Y; i30 Y; iA Y; # Y := char - $3A    (':' = $3A)
+    Z Y ?+3  Z Z 1B80 # if Y <= 0 continue; else not colon
+    Z Z;
+    Y Z ?+3  Z Z 1B80 # if Y >= 0 continue; else not colon
+
+#== Got 'label:' with colon, put new label mapping
+    C_ C_; IN C_; # getchar (drop the colon)
+
+    # need to table_insert (X, Y),
+    # X is string pointer (already there from intern_string)
+    # Y needs to be current offset(-) in binary
+    offset_ Z; Z Y; #Y = -offset
+    R R; ?+5 R; Z Z table_insert   ? #JSR table_insert(string, offset(-))
+
+    Z Z 2000  # return to main loop
+
+
+@1B80 #parse_label_nocolon
+    # got label with no colon, need to look up the string
+    # query table, either error out or put to outstream
+
+    # X(-) pts to interned str, look up the string in table
+    R R; ?+5 R; Z Z table_lookup   ?  #JSR
+    # Now X(-) holds label location
+
+    Z Y halt4  # if returns err (y==0), invalid label
+
+    # put label location+ to outstream
+    N N; X N; # N := loc+
+    R R; ?+5 R; Z Z put_num   ?  #JSR put_num(N == loc+)
+
+    Z Z 2000  # return to main loop
+
+
+@1C00
+parse_litstring: # Got a '"'
+    # Emit all characters literally
+    # keep looping until ", then go to handle_char
+    
+        # Drop char ('"') / Get next char
+        C_ C_; IN C_;
+
+        # Check next char in X-
+        X X; C_ X;
+
+        # switch (X) {
+        n1   X halt8 #   : $-1 X halt8               # char <= -1, == EOF
+        i1   X   ?   #   : $1  X                     #
+        i20  X   ?   #   : $20 X
+        i1   X 1C40  #   : $1  X put_str_char        #X <=21 
+        i1   X 1C80  #   : $1  X parse_string_end    #X <=22 '"'
+        i30  X   ?   #   : $30 X                     #   (52)   
+        i9   X 1C40  #   : $9  X put_str_char        #X <=5B 
+        i1   X 1C40  #   : $1  X put_str_char        #X <=5C '\' (for escapes?)
+        Z    Z 1C40  #   :       put_str_char        #X  >5C 
+
+@1C40 #put_str_char:
+    #Emit the char directly, little-endian
+    N N; C_ N;
+    R R; ?+5 R; Z Z put_num   ?  #JSR put_num(N == loc+)
+    Z Z parse_litstring
+
+@1C80 #parse_string_end
+    C_ C_; IN C_; # Discard closing "
+    Z Z 2000      # handle_char
+
+# =============================== MAIN LOOP
+
+#Note: expects first char of input in C (-)
+# clobbers X, jumps to one of the parser funcs
+# parser funcs jump back here (directly, not using return mechanism)
+
+@2000 #handle_char:
+#Needs to test what char C(-) is
+#First copy it into X(+)
+   X  X; C_ X; # X(+) = C(-)
+
+# Test value by repeatedly subtracting and testing <= 0
+  n1  X halt0            #  : $-1 X halt0               # char <= -1, == EOF
+  i1  X  ?               #  : $1  X                     #
+  i20 X 2100             #  : $20 X skip_char           # <=20, ' ' or \n or nonprint
+  i1  X halt1            #  : $1  X halt1               # <=21   
+  i1  X parse_litstring  #  : $1  X parse_string ("")   # <=22   "
+  i1  X parse_comment    #  : $1  X comment (#)         # <=23   # 
+  iC  X halt1            #  : $C  X halt1               # <=2F
+  iA  X parse_litnum     #  : $A  X read_lit_num        # <=39   0-9
+  i1  X halt1            #  : $1  X halt1               # <=3A
+  i1  X parse_putoffset  #  : $1  X put_offset(;)       # <=3B   ;
+  i3  X halt1            #  : $3  X halt1               # <=3E
+  i1  X parse_putoffset  #  : $1  X put_offset (?)      # <=3F   ?
+  i1  X parse_seekahead  #  : $1  X seek_ahead (@)      # <=40   @
+  i6  X parse_label      #  : $6  X parse_label         # <=46   A-F
+  i10 X  ?               #  : $10 X                     #
+  i4  X parse_label      #  : $4  X parse_label         # <=5A   G-Z
+  i4  X halt1            #  : $4  X err                 # <=5E
+  i1  X parse_label      #  : $1  X parse_label         # <=5F   _
+  i1  X halt1            #  : $1  X err                 # <=60
+  i6  X parse_label      #  : $6  X parse_label         # <=66   a-f
+  i10 X  ?               #  : $10 X                     #
+  i4  X parse_label      #  : $4  X parse_label         # <=7A   g-z
+                         #
+   Z  Z halt1            #  : Z   Z err                 #  >7A
+
+
+@2100 # skip_char:
+# Fetches the next char into C(-), dropping what had been there
+# Also works as entrypoint (init C with the first char)
+    C_ C_; IN C_; #getchar
+    Z Z 2000
+
+
+@2200 # custom_test:
+# test read_label
+
+    C_ C_; IN C_; # Fetch char
+
+    R R; ?+5 R; Z Z read_label;  #JSR read_label
+    Z Z halt0  # exit
+
+
+#...
+#@3000 is strtab, grows upward
+
+
+
+
+# (test invocation:)
+# sleqrun hex3.bin <asm/asm1.hex3 >asm1.bin && sleqrun asm1.bin < asm/asm1.hex3 > asm1.bin2 && sleqrun asm1.bin2 < asm/hello.asm1 | sleqrun -
+
+# ========== GADGETS / CODE SNIPPETS
+
+
+#Snippets:
+#
+# JLEZ(X,LOC): Z X LOC
+# JGEZ(X,LOC): T T; X T LOC
+# JGTZ(X,LOC): T T; $-1 T; X T LOC;
+# JLTZ(X,LOC): T T; X T ?+3; Z Z LOC;
+#
+# SUBJGE(X,Y,LOC): X Y LOC;            #Y -= X
+# SUBJLE(X,Y,LOC): T T; X Y; Y T LOC;  #Y -= X
+#
+#
+# JGE(X,Y,LOC): T T; Y Z; Z T; Z Z; X T LOC;
+# JLE: mirror
+#
+# GADGET: jsr  (1-level)
+#   R  R  ?
+# ?+5  R  ?            # copy constant retaddr to R(-)
+#   Z  Z  sub_routine  # jump subroutine
+#   ?                  # constant ret_addr
+#   _  _  _            # returns to here
+#
+# (JSR oneliner)
+# R R; ?+5 R; Z Z subroutine   ? #JSR
+#
+# GADGET: retsub  (1-level)
+# ?+7 ?+6    ?
+#   R ?+3    ?    #set Q = -R
+#   Z   Z  Q:0    #jmp -R
+#
+
+
+# GADGET: FETCH_SUBTRACT: *(-P) X
+# ?+5 ?+4; #   : Q   Q     #
+#   P ?+1; #   : P   Q     #
+#   _   X; #   : Q:_ X     # X -= *(-P)
+
+# GFETCH_SUB:   ptr(-)       tgt
+# ?+5 ?+4;        P   ?+1; 0  X;  # X -= *(-P)
+#
+# GFETCH:           ptr(-)         tgt
+# X X; ?+5 ?+4;        P   ?+1; 0  X;  # X = -*(-P)
+#
+#
+# # GADGET: POKE: *(P-) = -X
+# ?+11 ?+10; P_ ?+D;  # set J
+# ?+C  ?+B ; P_ ?+8;  # set K
+# ?+9  ?+8 ; P_ ?+5;  # set L
+# 0    0   ; X_   0;  # J K; (_) L
+
+# # GADGET: POKE:
+# ?+11 ?+10; P_ ?+D; # *(P-) = -X
+# ?+C  ?+B ; P_ ?+8; # .
+# ?+9  ?+8 ; P_ ?+5; # .
+# 0    0   ; X_   0; # .
