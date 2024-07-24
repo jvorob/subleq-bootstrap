@@ -2,8 +2,7 @@
 # (i.e. forth-style inner loop, can simply list addresses of subroutines and it will nest them properly)
 #
 # ==== MAIN FORTH TODO ======:
-# - DIG_ASCII NUMBER?
-# - , STR,
+# - , STR, (cmove?)
 # - FLAGS? (F_IMMED), bitwise ops
 # - >CFA, >DFA, <CFA
 # - CREATE
@@ -580,6 +579,11 @@ _ROT_wd: ? # ( a b tos -- tos a b )
 #                       VARS / CONSTS
 #
 # ================================================================
+# Lost words: do_var, do_const
+# BASE STATE DP LATEST
+# DO_COLON DO_VAR DO_CONST
+# DS0 RS0 NOSP_ RSP_
+# TOK_BUFF TOKP
 
 do_var: # push CWA+1
     ### Push TOS into NOS
@@ -667,6 +671,8 @@ TOKP_wd:     do_var   TOKP_val: 0
 #                   LOST WORDS
 #
 # ================================================================
+# Defines: (LIT, LITSTR)
+# LW_LIT LW_LITSTR LW_EXIT
 
 # Reads from NWA, pushes to stack, advances NWA
 LIT_wd: ?
@@ -710,9 +716,10 @@ LW_EXIT_wd: do_const EXIT_wd
 #                    ARITHMETIC
 #
 # ================================================================
-# -! +! @ !
-# + - * /MOD
-# 1+ 1- NEG
+# @ ! +! -!
+# + - NEG 1+ 2+ 1- 2-
+# CELLBYTES
+# * /MOD
 # TODO 2* >> << AND OR NOT
 
 
@@ -1065,9 +1072,12 @@ _divmod_loop2:
 #                        CONTROL FLOW
 #
 # ================================================================
-# BRANCH 0BRANCH
-# = <> < > <= >=
-# 0= 0< 0<= 0> 0>=
+# = <> < >= 
+# 0= 0<> 0> 0<= 0<
+# <= >
+# ( BRANCH 0BRANCH )
+# LW_BRANCH LW_0BRANCH
+
 # NOTE: All comparisons fall through to their 0 versions, therefore their
 # headers are separate and point to the code bodies
 
@@ -1228,6 +1238,11 @@ LW_0BRANCH_wd: do_const _0BRANCH_wd
 #
 # ================================================================
 # EMIT KEY
+# SPACE NL
+# TOKEN
+# STRCHARS
+# STR= TELL
+# DIGIT NUMBER
 
 
 KEY_hd: LW_0BRANCH_hd 0 3 "KEY"
@@ -1439,36 +1454,6 @@ STR_eq_wd: ? # (strp strp - ?equal)
     Z Z NEXT_cd
 
 
-FIND_hd: STR_eq_hd 0 4 "FIND"
-FIND_wd: do_colon # (strp - [dict_header or 0])
-
-    # Start searching at latest header
-    LATEST_wd _at_wd
-    SWAP_wd
-
-    # loop (hdrp strp):
-        OVER_wd _0BRANCH_wd  0E # if curr hdr is nullptr, jump to exit (+dec14)
-
-        # ==== COMPARE TGT TO CURRENT HEADER get len, compare
-        # (hdr str)
-
-        #prepare 2 string pointers
-        OVER_wd  # ( hdr str hdr )
-        _2plus_wd OVER_wd #(hdr str hd_str str)
-
-        # compare strings
-        STR_eq_wd _0BRANCH_wd   3
-            #If strings equal: (hdr str), return header
-            DROP_wd EXIT_wd
-        # Else, (hdr str), go to next entry
-        SWAP_wd _at_wd SWAP_wd
-
-        BRANCH_wd 0FFF1 #jmp loop (-dec15, -F)
-    #end loop
-
-    # (0 strp) reached nullptr, return 0
-    DROP_wd EXIT_wd
-
 
 DIGIT_cd_inval: #invalid character, return FF
     TOS TOS; nF0 TOS; nF TOS;
@@ -1490,7 +1475,7 @@ DIGIT_cd_09:
     Z Z NEXT_cd;
 
 
-DIGIT_hd: 0 0 5 "DIGIT"
+DIGIT_hd: STR_eq_hd 0 5 "DIGIT"
     # Parses an ascii character into a digit
     # if char not in range [0-9a-zA-Z], outputs returns FF
 DIGIT_wd: ? # (ascii_char - digit_value )
@@ -1521,7 +1506,7 @@ DROP_TO_neg1_wd: do_colon #( -1 [+num +num +num ] -- )
 # Tries to parse strp as a number in the current BASE
 # If gets an out of range digit, fails
 # Handles leading -
-NUMBER_hd: 0 0 6 "NUMBER"
+NUMBER_hd: DIGIT_hd 0 6 "NUMBER"
 NUMBER_wd: do_colon #(strp -- number 1  OR  0 )
     STRCHARS_wd # (-1 [lastchar ... firstchar] )
 
@@ -1572,6 +1557,43 @@ NUMBER_wd: do_colon #(strp -- number 1  OR  0 )
 
     # return (total 1)
     SWAP_wd _2plus_wd EXIT_wd
+
+# ================================================================
+#
+#                       DICT WORDS
+#
+# ================================================================
+# FIND
+
+FIND_hd: NUMBER_hd 0 4 "FIND"
+FIND_wd: do_colon # (strp - [dict_header or 0])
+
+    # Start searching at latest header
+    LATEST_wd _at_wd
+    SWAP_wd
+
+    # loop (hdrp strp):
+        OVER_wd _0BRANCH_wd  0E # if curr hdr is nullptr, jump to exit (+dec14)
+
+        # ==== COMPARE TGT TO CURRENT HEADER get len, compare
+        # (hdr str)
+
+        #prepare 2 string pointers
+        OVER_wd  # ( hdr str hdr )
+        _2plus_wd OVER_wd #(hdr str hd_str str)
+
+        # compare strings
+        STR_eq_wd _0BRANCH_wd   3
+            #If strings equal: (hdr str), return header
+            DROP_wd EXIT_wd
+        # Else, (hdr str), go to next entry
+        SWAP_wd _at_wd SWAP_wd
+
+        BRANCH_wd 0FFF1 #jmp loop (-dec15, -F)
+    #end loop
+
+    # (0 strp) reached nullptr, return 0
+    DROP_wd EXIT_wd
 
 
 # ================================================================
