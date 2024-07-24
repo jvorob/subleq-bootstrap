@@ -698,8 +698,30 @@ LIT_cd:
 
     Z Z NEXT_cd
 
+# String starting at NWA. Pushes strp to stack
+# Advances NWA by len+1 to skip string
 LITSTR_wd: ?
-    Z Z halt6 #TODO: not implemented
+    # GADGET: PUSH TOS into stack
+    TOS Z ;
+    n1 NOSP_; #grow stack (SP_ goes closer to 0)
+    ?+11 ?+10; NOSP_ ?+D; #
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; Z   0; # .
+
+    Z Z;
+
+    # Copy strp (NWA) to TOS
+    T T; NWA T; TOS TOS; T TOS;
+
+    # Fetch strlen from NWA (T- is PTR)
+    ?+5 ?+4;        T   ?+1; 0  Z;  # Z = -*(-T)
+    # Z holds -strlen
+
+    # increment NWA by strlen + 1
+    Z NWA; n1 NWA;
+
+    Z Z NEXT_cd
 
 
 LW_LIT_hd: TOKP_hd 0  6 "LW_LIT"
@@ -1794,6 +1816,12 @@ TEST_FIND_wd: do_colon #Takes input on STDIN: if valid word, should emit XT. Els
 
     # Try to find token
     FIND_wd CELLBYTES_wd EMIT_wd EMIT_wd
+
+    # Try to find R>
+    LITSTR_wd 0B "Finding R>" 0A TELL_wd
+    LITSTR_wd 2 "R>" FIND_wd
+    CELLBYTES_wd EMIT_wd EMIT_wd
+
     EXIT_wd
 
 TEST_NUMBER_wd: do_colon #Takes input on STDIN. Parses as number, emits
@@ -1823,9 +1851,9 @@ TEST_bd:
     #TEST_BRANCH_wd
 
     #TEST_TOKEN_wd
-    #TEST_FIND_wd
+    TEST_FIND_wd
 
-    TEST_NUMBER_wd
+    #TEST_NUMBER_wd
 
     HALT1_wd
 
