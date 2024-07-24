@@ -113,7 +113,7 @@ strtab_max: 0F000
 
 #  table_base table_size
 @3B
-table_base: 0E00
+table_base: 0D00
 table_size: 0
 table_max: 0FF8
 # code starts at 1000, warn if we get close
@@ -296,7 +296,7 @@ read_label_loop:  # (Tests if C is a valid label char)
 
 
 
-@0E00 #E00-FFF is the symbol table
+@0D00 #D00-FFF is the symbol table
 # X X X X
 
 # NOTE: table_max is at 0FF8, if we reach that we error out to avoid clobbering

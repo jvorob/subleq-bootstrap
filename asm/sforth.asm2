@@ -8,7 +8,7 @@
 # - >CFA, >DFA, <CFA
 # - CREATE
 # - INTERPRET
-# -
+# - fix QUIT (should properly reset things RSP, BASE, DSP?, etc)
 # - IMMEDIATE, [, ]
 # - :, ;
 # - LITSTRING
@@ -344,6 +344,7 @@ NEXT_cd:
 # DUP DROP 2DROP SWAP OVER 2SWAP ROT -ROT
 
 
+_toR_hd: 0 0 2 ">R"
 _toR_wd: ? #(pushes from data stack to return stack)
 _toR_cd:
     n1 RSP_ ; #grow return stack
@@ -363,6 +364,7 @@ _toR_cd:
 
     Z Z NEXT_cd
 
+_fromR_hd: _toR_hd 0 2 "R>"
 _fromR_wd: ? # pops from return stack to data stack
 _fromR_cd:
     # GADGET: PUSH TOS
@@ -382,6 +384,7 @@ _fromR_cd:
     Z Z NEXT_cd
 
 
+DUP_hd: _fromR_hd 0 3 "DUP"
 DUP_wd: ?
 DUP_cd:
     # GADGET: PUSH TOS
@@ -393,6 +396,7 @@ DUP_cd:
     0    0   ; Z   0; # .
     Z Z NEXT_cd
 
+DROP_hd: DUP_hd 0 4 "DROP"
 DROP_wd: ?
 DROP_cd:
     # GADGET: POP(Z-)
@@ -401,6 +405,7 @@ DROP_cd:
     i1 NOSP_; #shrink stack (SP_ goes more negative)
     Z Z NEXT_cd
 
+_2DROP_hd: DROP_hd 0 5 "2DROP"
 _2DROP_wd: ? # drops 2 elements
 _2DROP_cd:
     #TOS and NOS can get discarded, but 3OS needs to get popped
@@ -435,6 +440,7 @@ SLOW_SWAP_cd:
     Z Z NEXT_cd
 
 # We can do better by doing *(NOSP) -= (NOS - TOS)
+SWAP_hd: _2DROP_hd 0 4 "SWAP"
 SWAP_wd: ? # ( a b -- b a )
 SWAP_cd:
     # GADGET: -@NOS(Z) (don't change SP)
@@ -457,6 +463,7 @@ SWAP_cd:
     #Swapped
     Z Z NEXT_cd
 
+OVER_hd: SWAP_hd 0 4 "OVER"
 OVER_wd: ? # ( a b -- a b a)
 OVER_cd:
     #peek a into Z-
@@ -475,10 +482,17 @@ OVER_cd:
     TOS TOS; Z TOS;
     Z Z NEXT_cd;
 
+_2DUP_hd: OVER_hd 0 4 "2DUP"
+_2DUP_wd: do_colon # ( a b -- a b a b) #TODO: upgrade to asm
+    OVER_wd OVER_wd EXIT_wd
+
+
+TUCK_hd: _2DUP_hd 0 4 "TUCK"
 TUCK_wd: do_colon # (a b - b a b)
     SWAP_wd OVER_wd EXIT_wd
 
 # We can do better by doing *(NOSP) -= (NOS - TOS)
+_2SWAP_hd: TUCK_hd 0 5 "2SWAP"
 _2SWAP_wd: ? # ( a b c d -- c d a b )
 _2SWAP_cd:
 
@@ -512,6 +526,7 @@ _2SWAP_cd:
     TOS TOS; Y TOS; # TOS becomes b
     Z Z NEXT_cd
 
+ROT_hd: _2SWAP_hd 0 3 "ROT"
 ROT_wd: ? # ( a b tos -- b tos a )
     # Fetch X=-a, Y=-b
     X X; Y Y;
@@ -536,6 +551,7 @@ ROT_wd: ? # ( a b tos -- b tos a )
     TOS TOS; X TOS; #TOS becomes a
     Z Z NEXT_cd
 
+_ROT_hd: ROT_hd 0  4 "-ROT"
 _ROT_wd: ? # ( a b tos -- tos a b )
     # Fetch X=-a, Y=-b
     X X; Y Y;
@@ -594,17 +610,24 @@ do_const: # push *(CWA+1)
     Z Z NEXT_cd
 
 # Outer interp vars
+BASE_hd: _ROT_hd 0 4 "BASE"
 BASE_wd:  do_var    BASE_val: 0A
+STATE_hd: BASE_hd 0 5 "STATE"
 STATE_wd: do_var    STATE_val: 0
 
 # Dict vars
+DP_hd: STATE_hd 0 2 "DP"
 DP_wd:     do_var       DP_val:    0DEAD #TODO
+LATEST_hd: DP_hd 0 6 "LATEST"
 LATEST_wd: do_var       LATEST_val: 0DEAD
 
 # Constant, key addresses of lost interpreters
 # (others can be gotten using find)
+DO_COLON_hd: LATEST_hd 0 8 "DO_COLON"
 DO_COLON_wd: do_const       DO_COLON_val: do_colon
+DO_VAR_hd: DO_COLON_hd 0 6 "DO_VAR"
 DO_VAR_wd:   do_const       do_var
+DO_CONST_hd: DO_VAR_hd 0 8 "DO_CONST"
 DO_CONST_wd: do_const       do_const
 
 #DO_EXIT_wd: do_const       DO_EXIT_val: EXIT_cd
@@ -612,17 +635,26 @@ DO_CONST_wd: do_const       do_const
 
 # Note: when stack is empty, NOSP(-) points to DS0+2
 # Note: when stack is empty, RSP(-) points to DS0+1
+DS0_hd: DO_CONST_hd 0 3 "DS0"
 DS0_wd: do_const  DS0_val: dstack_base
+
+RS0_hd: DS0_hd 0 3 "RS0"
 RS0_wd: do_const  RS0_val: rstack_base
 
+NOSP__hd: RS0_hd 0 5 "NOSP_"
 NOSP__wd: do_const  NOSP__val: NOSP_
+
+RSP__hd: NOSP__hd 0 4 "RSP_"
 RSP__wd:  do_const   RSP__val: RSP_
 
 
 
 # TOKEN buffer (note: TOK_BUFF_0 is len, rest is string)
 # TOKP points to next free space?
+TOK_BUFF_hd: RSP__hd 0 8 "TOK_BUFF"
 TOK_BUFF_wd: do_const TOK_BUFF_val: token_buff
+
+TOKP_hd: TOK_BUFF_hd 0 4 "TOKP"
 TOKP_wd:     do_var   TOKP_val: 0
 
 
@@ -632,14 +664,9 @@ TOKP_wd:     do_var   TOKP_val: 0
 
 # ================================================================
 #
-#                    ARITHMETIC / CONTROL FLOW
+#                   LOST WORDS
 #
 # ================================================================
-# LIT
-# -! +! @ !
-# + - * /MOD
-# 1+ 1- NEG
-# TODO 2* >> << AND OR NOT
 
 # Reads from NWA, pushes to stack, advances NWA
 LIT_wd: ?
@@ -665,6 +692,31 @@ LIT_cd:
 
     Z Z NEXT_cd
 
+LITSTR_wd: ?
+    Z Z halt6 #TODO: not implemented
+
+
+LW_LIT_hd: TOKP_hd 0  6 "LW_LIT"
+LW_LIT_wd: do_const LIT_wd
+
+LW_LITSTR_hd: LW_LIT_hd 0  9 "LW_LITSTR"
+LW_LITSTR_wd: do_const LITSTR_wd
+
+LW_EXIT_hd: LW_LITSTR_hd 0 7 "LW_EXIT"
+LW_EXIT_wd: do_const EXIT_wd
+
+# ================================================================
+#
+#                    ARITHMETIC
+#
+# ================================================================
+# -! +! @ !
+# + - * /MOD
+# 1+ 1- NEG
+# TODO 2* >> << AND OR NOT
+
+
+_at_hd: LW_EXIT_hd 0 1 "@"
 _at_wd: ? # ( addr - *addr )
 _at_cd:
     P1 P1; TOS P1; # P1(-) = addr
@@ -675,6 +727,7 @@ _at_cd:
 
     Z Z NEXT_cd
 
+_bang_hd: _at_hd 0 1 "!"
 _bang_wd: ? # (val addr - [*addr = val] )
 
     P1 P1; TOS P1; # addr in P1(-)
@@ -696,6 +749,7 @@ _bang_wd: ? # (val addr - [*addr = val] )
     0    0   ; X   0; # .
     Z Z NEXT_cd
 
+_plusbang_hd: _bang_hd 0 2 "+!"
 _plusbang_wd: ? # (val addr - [*addr += val] )
 
     P1 P1; TOS P1; # addr in P1(-)
@@ -714,6 +768,7 @@ _plusbang_wd: ? # (val addr - [*addr += val] )
 
     Z Z NEXT_cd
 
+_minusbang_hd: _plusbang_hd 0 2 "-!"
 _minusbang_wd: ? # (val addr - [*addr -= val] )
     P1 P1; TOS P1; # addr in P1(-)
 
@@ -733,6 +788,7 @@ _minusbang_wd: ? # (val addr - [*addr -= val] )
 
     Z Z NEXT_cd
 
+_plus_hd: _minusbang_hd 0 1 "+"
 _plus_wd: ? #( a b -- a+b)
     # ### Pop NOS into Z
     ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
@@ -741,6 +797,7 @@ _plus_wd: ? #( a b -- a+b)
     Z TOS; # TOS -= -a
     Z Z NEXT_cd
 
+_minus_hd: _plus_hd 0 1 "-"
 _minus_wd: ? #( a b -- a-b)
     # ### Pop NOS into Z
     ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
@@ -752,21 +809,26 @@ _minus_wd: ? #( a b -- a-b)
     TOS TOS; Z TOS; # TOS holds a-b
     Z Z NEXT_cd
 
+NEG_hd: _minus_hd 0 3 "NEG"
 NEG_wd: ? #( a -- -a)
     T T;
     TOS T; T Z;
     TOS TOS; Z TOS;
     Z Z NEXT_cd
 
+_1plus_hd: NEG_hd 0 2 "1+"
 _1plus_wd: ? #( a -- a+1)
     n1 TOS; Z Z NEXT_cd
 
+_2plus_hd: _1plus_hd 0 2 "2+"
 _2plus_wd: ? #( a -- a+2)
     n2 TOS; Z Z NEXT_cd
 
+_1minus_hd: _2plus_hd 0 2 "1-"
 _1minus_wd: ? #( a -- a-1)
     i1 TOS; Z Z NEXT_cd
 
+_2minus_hd: _1minus_hd 0 2 "2-"
 _2minus_wd: ? #( a -- a-2)
     i2 TOS; Z Z NEXT_cd
 
@@ -774,6 +836,7 @@ _2minus_wd: ? #( a -- a-2)
 # ============= BITWISE STUFF
 
 # used to split a word into its low and high bytes
+CELLBYTES_hd: _2minus_hd 0 9 "CELLBYTES"
 CELLBYTES_wd: ? # ( x -- hibyte(x) lobyte(x))
     alu_A alu_A;   TOS Z; Z alu_A; Z Z;  # alu_A := x
 
@@ -801,6 +864,8 @@ _times_exit: # We jump here once X==0
     TOS TOS; V Z; Z TOS; # Result in V(+), copy to T
     Z Z NEXT_cd
 
+# ================== TIMES ENTRY POINT
+_times_hd: CELLBYTES_hd 0 1 "*"
 _times_wd: ? # (x y - x*y )
 
     alu_B alu_B; n1 alu_B; # alu_B is always 1
@@ -879,6 +944,8 @@ _divmod_exit: # We jump here once X==0
         TOS TOS; X Z; Z TOS; # Remainder in X(+), copy to TOS
         Z Z NEXT_cd
 
+# ================ DIVMOD ENTRY POINT
+_divmod_hd: _times_hd 0 4 "/MOD"
 _divmod_wd: ? # (x y - x/y x%y )
 
     alu_B alu_B; n1 alu_B; # alu_B is always 1
@@ -1004,6 +1071,7 @@ _divmod_loop2:
 # NOTE: All comparisons fall through to their 0 versions, therefore their
 # headers are separate and point to the code bodies
 
+_eq_hd: _divmod_hd 0 1 "="
 _eq_wd: ? # ( a b  -  a==b?1:0)
     # ### Pop NOS, subtract from TOS
     ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
@@ -1023,6 +1091,7 @@ _0eq_cd:
 
 
 
+_ne_hd: _eq_hd 0 2 "<>"
 _ne_wd: ? # ( a b  -  a!=b?1:0)
     # ### Pop NOS, subtract from TOS
     ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
@@ -1042,7 +1111,7 @@ _0ne_cd:
 
 
 
-
+_lt_hd: _ne_hd 0 1 "<"
 _lt_wd: ? # ( a b  -  a<b?1:0)
     # ### Pop NOS, subtract from TOS
     ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
@@ -1061,6 +1130,7 @@ _0gt_cd: # for 0-comparison, TOS is a-0, so is gt instead of lt
         TOS TOS; n1 TOS; #TOS = 1
         Z Z NEXT_cd
 
+_ge_hd: _lt_hd 0 2 ">="
 _ge_wd: ? # ( a b  -  a>=b?1:0)
     # ### Pop NOS, subtract from TOS
     ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
@@ -1083,24 +1153,33 @@ _0le_cd: # for 0-comparison, TOS is a-0, so is le instead of ge
 
 # 0-comparisons are fallthroughs of the main paths, so write their headers here
 # TODO: HEADERS
+_0eq_hd: _ge_hd 0 2 "0="
 _0eq_wd: _0eq_cd
+
+_0ne_hd: _0eq_hd 0 3 "0<>"
 _0ne_wd: _0ne_cd
 
 # = link up
+_0gt_hd: _0ne_hd 0 2 "0>"
 _0gt_wd: _0gt_cd
+
+_0le_hd: _0gt_hd 0 3 "0<="
 _0le_wd: _0le_cd
 
 # Define in reference to the above (this is slower, but safer)
+_0ge_hd: _0le_hd 0 3 "0>="
 _0ge_wd: ?
     T T; TOS T; T Z; TOS TOS; Z TOS; Z Z _0le_cd
 
+_0lt_hd: _0ge_hd 0 2 "0<"
 _0lt_wd: ?
     T T; TOS T; T Z; TOS TOS; Z TOS; Z Z _0gt_cd
 
-
+_le_hd: _0lt_hd 0 2 "<="
 _le_wd: do_colon
     SWAP_wd _ge_wd EXIT_wd
 
+_gt_hd: _le_hd 0 1 ">"
 _gt_wd: do_colon
     SWAP_wd _lt_wd EXIT_wd
 
@@ -1136,6 +1215,12 @@ _0BRANCH_wd: ? # If 0, jump BRANCH_cd
     # take_branch:
     Z Z BRANCH_cd #(need extra op to clear Z)
 
+# Add constants to capture BRANCH and 0BRANCH
+LW_BRANCH_hd: _gt_hd 0  9 "LW_BRANCH"
+LW_BRANCH_wd: do_const BRANCH_wd
+
+LW_0BRANCH_hd: LW_BRANCH_hd 0 0A "LW_0BRANCH"
+LW_0BRANCH_wd: do_const _0BRANCH_wd
 
 # ================================================================
 #
@@ -1145,6 +1230,7 @@ _0BRANCH_wd: ? # If 0, jump BRANCH_cd
 # EMIT KEY
 
 
+KEY_hd: LW_0BRANCH_hd 0 3 "KEY"
 KEY_wd: ? # Fetches in a char (buffers through C_)
     # IF EOF, halts
 
@@ -1166,6 +1252,7 @@ KEY_wd: ? # Fetches in a char (buffers through C_)
     Z Z NEXT_cd
 
 
+EMIT_hd: KEY_hd 0 4 "EMIT"
 EMIT_wd: ? #Emits char at TOS
 EMIT_cd:
     T T; TOS T; T OUT;
@@ -1177,10 +1264,12 @@ EMIT_cd:
 
     Z Z NEXT_cd;
 
+SPACE_hd: EMIT_hd 0 5 "SPACE"
 SPACE_wd: ?  # Emits 0x20 ' '
 SPACE_cd:
     n20 OUT; Z Z NEXT_cd
 
+NL_hd: SPACE_hd 0 2 "NL"
 NL_wd: ?  # Emits 0xA '\n'
 NL_cd:
     nA OUT; Z Z NEXT_cd
@@ -1256,6 +1345,7 @@ TOKEN_cd_readchars:
 
 
 # =============== TOKEN ENTRY POINT (need to jump backwards for labels to work)
+TOKEN_hd: NL_hd 0 5 "TOKEN"
 TOKEN_wd: ? # Reads a token from IN
             # Skips blanks and control characters
             # Once finds a text char, consume that until next blank, read into tok_buff
@@ -1291,6 +1381,7 @@ TOKEN_cd_lstrip:
 # skips ' ', '\t', '\n'
 # consumes chars until blank
 
+STRCHARS_hd: TOKEN_hd 0 8 "STRCHARS"
 STRCHARS_wd: do_colon # (strp -- -1 [all chars of string, first char on TOS] )
     LIT_wd 0FFFF SWAP_wd # Push flag ( -1 strp )
 
@@ -1316,6 +1407,7 @@ STRCHARS_wd: do_colon # (strp -- -1 [all chars of string, first char on TOS] )
     EXIT_wd
 
 
+TELL_hd: STRCHARS_hd 0 4 "TELL"
 TELL_wd: do_colon # (strp - [prints string])
     STRCHARS_wd
 
@@ -1327,6 +1419,7 @@ TELL_wd: do_colon # (strp - [prints string])
     EXIT_wd
 
 
+STR_eq_hd: TELL_hd 0 4 "STR="
 STR_eq_wd: ? # (strp strp - ?equal)
 
     P1 P1; P2 P2;
@@ -1346,6 +1439,7 @@ STR_eq_wd: ? # (strp strp - ?equal)
     Z Z NEXT_cd
 
 
+FIND_hd: STR_eq_hd 0 4 "FIND"
 FIND_wd: do_colon # (strp - [dict_header or 0])
 
     # Start searching at latest header
@@ -1484,9 +1578,6 @@ TRUE_FALSE_wd: do_colon # (bool - 'T' or 'F')
     EXIT_wd
     0d 0d 0d
 
-_2DUP_wd: do_colon
-    OVER_wd OVER_wd EXIT_wd
-
 TEST_BRANCH_wd: do_colon # Prints "*****" using a loop
     #Comparisons should print a solid block of "T"
 
@@ -1593,7 +1684,7 @@ TEST_bd:
     #TEST_BRANCH_wd
 
     #TEST_TOKEN_wd
-    #TEST_FIND_wd
+    TEST_FIND_wd
 
     HALT1_wd
 
@@ -1606,7 +1697,7 @@ MAIN_wd: do_colon
 
 
 # If main returns, it will return here, so we can error out
-QUIT_hd: 0 0   4   51 55 49 54 #"QUIT"
+QUIT_hd: FIND_hd 0 4 "QUIT"
 QUIT_wd: do_colon
 QUIT_bd:
     MAIN_wd
