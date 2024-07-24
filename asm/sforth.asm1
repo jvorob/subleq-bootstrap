@@ -2,16 +2,29 @@
 # (i.e. forth-style inner loop, can simply list addresses of subroutines and it will nest them properly)
 #
 # ==== MAIN FORTH TODO ======:
-# - TOKEN
-# - FIND?
 # - DIG_ASCII NUMBER?
+# - , STR,
+# - FLAGS? (F_IMMED), bitwise ops
+# - >CFA, >DFA, <CFA
 # - CREATE
-# - IMMEDIATE
+# - INTERPRET
+# -
+# - IMMEDIATE, [, ]
 # - :, ;
+# - LITSTRING
+#
+# #==== Post escape:
+# - ' ( lookup word )
+# - quoting / comments
+# - control flow
+# - printing
+# - VALUE X, TO X, +TO X
 #
 # Low priority:
 # - Optimizations (1+, -!, etc)
 # - shifts, bitwise ops
+# - String optimization: CMOVE
+# - STRCHARS can just be a CMOVE into stack space, with special case for TOS
 #
 # LONG-TERM-PROJECT: NEG-OPTIMIZATION?
 # - word-addresses negative? (fetch CWA goes from 3 to 1)
@@ -53,6 +66,7 @@
 # XXXX_cd is assembly code that can be jumped to
 # XXXX_bd is body of secondary word
 
+# Dictionary header is LINK, FLAGS, STRLEN, [STR...], CF, BODY
 # =========  HEADER
 
 @0 # Z T entry       P1  M1  0 0
@@ -161,8 +175,12 @@ halt4:   4  4 0DC    #DC:   err: halt4 # Executed 0d 0d 0d
 
 @120
 halt5: 5 5 halt5 #halt5: divide by zero
-halt6: 6 6 halt6
-halt7: 7 7 halt7
+halt6: 6 6 halt6 #halt6: not implemented
+halt7: 7 7 halt7 #halt7:
+#halt7: 7 7 halt7 #halt7:
+#halt7: 7 7 halt7 #halt7:
+#halt7: 7 7 halt7 #halt7:
+haltE: 0E 0E haltE #haltE: EOF
 
 
 # ====================== CORE FORTH VARS
@@ -190,7 +208,75 @@ RSP_: 0 #RSP(-) points to next free space
 @400 rstack_base: 0d #Return stack (grows downward)
     0CAFE #canary
 
+# Token buffer (NOTE: first location is length)
+@440 token_buff:
+@480 #end of token buffer
 #
+
+
+@550 # strcmp:
+strcmp:
+# We have two strings, the lengths matched
+# (strings with lengths at strp[0])
+# P1(-), P2(-) point to their start (length byte)
+# Return value in X: 1 if ==, else 0
+#
+# Y- will hold strlen 1
+# V- will hold strlen 2
+#
+# X will hold loop counter (-len)
+# W: tmp, test char
+# cP1 will hold ptr to curr char of iter str
+# cP2 will hold ptr to curr char of new-interning str
+
+    #Fetch lengths into Y and V
+    Y Y; ?+5 ?+4; P1 ?+1; 0 Y; # GADGET:FETCH Y = -*(-P1)
+    V V; ?+5 ?+4; P2 ?+1; 0 V; # GADGET:FETCH V = -*(-P1)
+
+    # Check if lengths match (Y-V=0)
+    Y V ?+3  # if V-Y <= 0, jump nextif
+    Z Z 5E0  # else V-Y >0, jump strcmp_neq
+    V Z ?+3  # nextif V-Y >= 0 (V-Y==0): strcmp worked
+    Z Z 5E0  # else V-Y < 0, jump strcmp_neq
+
+    # If we get here, lengths matched, do strcmp
+    Z Z; X X;
+    Y Z; Z X; Z Z; # X- = len Y(-)
+    n1 X;     # X++ ( len-- )
+
+    # Write ptrs into fetchloop code
+    5AC 5AC; P1 5AC;  # cmpP1+ = (P1)  (loop skips len field)
+    5AF 5AF; P2 5AF;  # cmpP2+ = (P2)  (loop skips len field)
+    Z Z 5A0 #jmp to strcmp loop
+
+@5A0 #strcmp_loop:
+    # advance ptrs (+ so inc)
+    n1 5AC; # CP1(+) ++
+    n1 5AF; # CP2(+) ++
+
+##   #fetch next char of each string into W, T
+    T T; W W;
+@5AC   0  W;  #   : cP1:_ W        #
+@5AF   0  T;  #   : cP2:_ T        #
+
+    T   W  ?+3 #   : T W ?+3        # W = *cP2 - *cP1
+    Z   Z  ?+3 #   : jmp ?+3        #
+    W   Z  5C0 #   : W Z strcmp_continue  # if  W == 0, chars matched, cmp next char
+    Z   Z  5E0 #   : Z Z strcmp_neq  # else, string mismatch, try next str
+
+
+@5C0 #strcmp_continue: #chars matched, keep checking rest of str
+   Z Z; #fix Z
+   n1 X 5A0 #   : $-1 X loop     # X++, if X<=0, jump strcmp_loop
+
+# stcmp_end_of_loop:
+# if we're here, we've successfully matched all the chars
+   X X; n1 X; Z Z retsub #return 1
+
+@5E0 #strcmp_neq, return 0
+    X X; Z Z retsub
+
+
 # ======================= Primitives
 
 @800
@@ -389,6 +475,9 @@ OVER_cd:
     TOS TOS; Z TOS;
     Z Z NEXT_cd;
 
+TUCK_wd: do_colon # (a b - b a b)
+    SWAP_wd OVER_wd EXIT_wd
+
 # We can do better by doing *(NOSP) -= (NOS - TOS)
 _2SWAP_wd: ? # ( a b c d -- c d a b )
 _2SWAP_cd:
@@ -512,9 +601,14 @@ STATE_wd: do_var    STATE_val: 0
 DP_wd:     do_var       DP_val:    0DEAD #TODO
 LATEST_wd: do_var       LATEST_val: 0DEAD
 
-# Constant, key addresses of do_colon
+# Constant, key addresses of lost interpreters
+# (others can be gotten using find)
 DO_COLON_wd: do_const       DO_COLON_val: do_colon
-DO_EXIT_wd: do_const       DO_EXIT_val: EXIT_cd
+DO_VAR_wd:   do_const       do_var
+DO_CONST_wd: do_const       do_const
+
+#DO_EXIT_wd: do_const       DO_EXIT_val: EXIT_cd
+
 
 # Note: when stack is empty, NOSP(-) points to DS0+2
 # Note: when stack is empty, RSP(-) points to DS0+1
@@ -524,6 +618,17 @@ RS0_wd: do_const  RS0_val: rstack_base
 NOSP__wd: do_const  NOSP__val: NOSP_
 RSP__wd:  do_const   RSP__val: RSP_
 
+
+
+# TOKEN buffer (note: TOK_BUFF_0 is len, rest is string)
+# TOKP points to next free space?
+TOK_BUFF_wd: do_const TOK_BUFF_val: token_buff
+TOKP_wd:     do_var   TOKP_val: 0
+
+
+
+# Other Vars:
+# LATEST (defined just before main loop, since is end of dict)
 
 # ================================================================
 #
@@ -654,11 +759,40 @@ NEG_wd: ? #( a -- -a)
     Z Z NEXT_cd
 
 _1plus_wd: ? #( a -- a+1)
-    n1 TOS;
-    Z Z NEXT_cd
+    n1 TOS; Z Z NEXT_cd
+
+_2plus_wd: ? #( a -- a+2)
+    n2 TOS; Z Z NEXT_cd
 
 _1minus_wd: ? #( a -- a-1)
-    i1 TOS;
+    i1 TOS; Z Z NEXT_cd
+
+_2minus_wd: ? #( a -- a-2)
+    i2 TOS; Z Z NEXT_cd
+
+
+# ============= BITWISE STUFF
+
+# used to split a word into its low and high bytes
+CELLBYTES_wd: ? # ( x -- hibyte(x) lobyte(x))
+    alu_A alu_A;   TOS Z; Z alu_A; Z Z;  # alu_A := x
+
+    # Get hibyte:
+    alu_B alu_B;  n8 alu_B;  # alu_B := 8
+    T T; alu_rs T;    # T- = (x >> 8)
+
+    # Push hibyte into NOS
+    n1 NOSP_; #grow stack
+    ?+11 ?+10; NOSP_ ?+D; # GADGET: NEG!NOS(T)
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; T   0; # .
+
+    # Get lobyte into TOS
+    TOS TOS;
+    alu_B alu_B;  nF0 alu_B; nF alu_B;  # alu_B := FF
+    alu_and Z; Z TOS;                   # TOS = (x & FF)
+
     Z Z NEXT_cd
 
 
@@ -813,7 +947,6 @@ _divmod_loop1:
     # Now: since we've guaranteed both X and Y originally >0, Y wont have overflowed.
     # Y may be negative, but Y-X >= 0
 
-    #Z Z halt6
     alu_B alu_B; n1 alu_B; # Always shifting by 1
 
 _divmod_loop2:
@@ -1011,6 +1144,28 @@ _0BRANCH_wd: ? # If 0, jump BRANCH_cd
 # ================================================================
 # EMIT KEY
 
+
+KEY_wd: ? # Fetches in a char (buffers through C_)
+    # IF EOF, halts
+
+    ### Push TOS into NOS
+    T T; TOS T;
+    n1 NOSP_; #grow stack
+    ?+11 ?+10; NOSP_ ?+D; # GADGET: NEG!NOS(T)
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; T   0; # .
+
+    TOS TOS; C_ TOS;
+    C_ C_; IN C_;
+
+    # check for EOF (<0)
+    n1 TOS haltE #if TOS+1 <= 0, char was -1
+    i1 TOS;        #else, decrement it back
+
+    Z Z NEXT_cd
+
+
 EMIT_wd: ? #Emits char at TOS
 EMIT_cd:
     T T; TOS T; T OUT;
@@ -1033,6 +1188,192 @@ NL_cd:
 HALT1_wd: ?
 HALT1_cd:
     0 0 halt1
+
+
+
+# NOTE: token buffers/ptrs with VARS/CONSTS
+
+# VARS:
+# TOKP resets to TOK_BUFF
+#  VARS
+#  Y(-) holds len
+#  P1(-) pts to next free space for char, (starts at TOK_BUFF)
+#  fetch char into X
+
+
+# Reached EOF, halt
+TOKEN_cd_eof: Z Z haltE
+
+# Skip comments until we hit \n?
+TOKEN_cd_comment: #TODO
+    Z Z halt6
+
+TOKEN_cd_end:
+    # We've poked all our chars in
+    # Write TOKP
+    TOKP_val TOKP_val; P1 TOKP_val;
+
+    # Write len to token_buff[0] (Y is (-))
+    token_buff token_buff; Y token_buff;
+
+    #Return (token_buff -- )
+
+    ### Push TOS into NOS
+    T T; TOS T;
+    n1 NOSP_; #grow stack
+    ?+11 ?+10; NOSP_ ?+D; # GADGET: NEG!NOS(T)
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; T   0; # .
+
+    # Put addr of token_buff into TOS
+    TOS TOS; TOK_BUFF_val Z; Z TOS;
+    Z Z NEXT_cd #EXIT
+
+# We've skipped all the preceding blanks, now go grab the actual token
+TOKEN_cd_readchars:
+    #Got a token char in C_, push it to the str
+
+    # Poke into string pointer at P1
+    # GADGET: POKE-:
+    ?+11 ?+10; P1 ?+D; # *(P-) = -C(-)
+    ?+C  ?+B ; P1 ?+8; # .
+    ?+9  ?+8 ; P1 ?+5; # .
+    0    0   ; C_   0; # .
+
+    i1 P1; # advance ptr P1(-)
+    i1 Y;  # inc length (-)
+
+    #get next char
+    C_ C_; IN C_;
+    X X; C_ X; # X(+) = C(-)
+
+    # Test value by repeatedly subtracting and testing <= 0
+    n1  X TOKEN_cd_eof        #  : $-1 X halt eof            # char <= -1, == EOF
+    i1  X  ?                  #  : $1  X                     #
+    i20 X TOKEN_cd_end        #  : $20 X end                 # <=20, ' ' or \n or nonprint
+    Z   Z TOKEN_cd_readchars  #  :                           # >20, poke it in, continue
+
+
+# =============== TOKEN ENTRY POINT (need to jump backwards for labels to work)
+TOKEN_wd: ? # Reads a token from IN
+            # Skips blanks and control characters
+            # Once finds a text char, consume that until next blank, read into tok_buff
+            # return strp
+
+    Y Y; # len(-) = 0
+    P1 P1; TOK_BUFF_val P1; i1 P1; #P1 points to token_buff[1] (first string char)
+
+    Z Z ?+6
+    # Loop, repeatedly skipping comments and blanks until we find a char
+TOKEN_cd_lstrip:
+    C_ C_; IN C_; # Get next char (skip first time)
+
+    #First copy it into X(+)
+    X X; C_ X; # X(+) = C(-)
+
+    # Test value by repeatedly subtracting and testing <= 0
+    n1  X TOKEN_cd_eof        #  : $-1 X halt0               # char <= -1, == EOF
+    i1  X  ?                  #  : $1  X                     #
+    i20 X TOKEN_cd_lstrip     #  : $20 X skip_char           # <=20, ' ' or \n or nonprint
+     Z  Z TOKEN_cd_readchars  #  :  Z  Z char                # >20
+    #i30 X  ?                  #  : $30 X                     #
+    #iB  X TOKEN_cd_readchars  #  : $0B X char                # <=5B
+    #i1  X  ?                  #  : $1  X skip_comment        # <=5C '\'
+    ##i1  X TOKEN_cd_comment    #  : $1  X skip_comment        # <=5C '\'
+    # Z  Z TOKEN_cd_readchars  #  :  Z  Z char                # >5C
+
+    #shouldn't reach here
+    0d 0d 0d
+
+
+# TOKEN:
+# skips ' ', '\t', '\n'
+# consumes chars until blank
+
+STRCHARS_wd: do_colon # (strp -- -1 [all chars of string, first char on TOS] )
+    LIT_wd 0FFFF SWAP_wd # Push flag ( -1 strp )
+
+    #Get len
+    DUP_wd _at_wd SWAP_wd #(-1 len strp)
+
+    #Start at last char, strp+len (don't need to -1 since str[0] is len field)
+    OVER_wd _plus_wd  # (-1 len strp_end)
+    SWAP_wd #(-1 strp_end len)
+
+    # loop:
+    DUP_wd _0BRANCH_wd 0A  #if len = 0, exit (jump dec10)
+
+    # ( -1 [chars] strp len)
+    SWAP_wd DUP_wd _at_wd _ROT_wd #( -1 [chars+1] len strp )
+
+    _1minus_wd SWAP_wd _1minus_wd #( -1 [chars+1] strp-1 len-1 )
+
+    BRANCH_wd 0FFF5 #loop (-dec11)
+    # endloop
+
+    _2DROP_wd # drop pointers
+    EXIT_wd
+
+
+TELL_wd: do_colon # (strp - [prints string])
+    STRCHARS_wd
+
+    #loop
+    DUP_wd _0ge_wd _0BRANCH_wd 4    #if ! >=0, , end of string, exit
+    EMIT_wd BRANCH_wd 0FFFA #else emit, loop -6
+    #endloop
+    DROP_wd #drop the -1
+    EXIT_wd
+
+
+STR_eq_wd: ? # (strp strp - ?equal)
+
+    P1 P1; P2 P2;
+
+    # Copy TOS into P1(-)
+    P1 P1; TOS P1;
+
+    # Pop NOS into P2(-1)
+    ?+5 ?+4; NOSP_  ?+1; 0 P2; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    R R; ?+5 R; Z Z strcmp   ? #JSR
+
+    # Result in X, copy to TOS
+    TOS TOS; X Z; Z TOS;
+
+    Z Z NEXT_cd
+
+
+FIND_wd: do_colon # (strp - [dict_header or 0])
+
+    # Start searching at latest header
+    LATEST_wd _at_wd
+    SWAP_wd
+
+    # loop (hdrp strp):
+        OVER_wd _0BRANCH_wd  0E # if curr hdr is nullptr, jump to exit (+dec14)
+
+        # ==== COMPARE TGT TO CURRENT HEADER get len, compare
+        # (hdr str)
+
+        #prepare 2 string pointers
+        OVER_wd  # ( hdr str hdr )
+        _2plus_wd OVER_wd #(hdr str hd_str str)
+
+        # compare strings
+        STR_eq_wd _0BRANCH_wd   3
+            #If strings equal: (hdr str), return header
+            DROP_wd EXIT_wd
+        # Else, (hdr str), go to next entry
+        SWAP_wd _at_wd SWAP_wd
+
+        BRANCH_wd 0FFF1 #jmp loop (-dec15, -F)
+    #end loop
+
+    # (0 strp) reached nullptr, return 0
+    DROP_wd EXIT_wd
 
 # ================================================================
 #
@@ -1215,6 +1556,28 @@ TEST_BRANCH_wd: do_colon # Prints "*****" using a loop
 
     EXIT_wd
 
+TEST_TOKEN_wd: do_colon # SHould consume two tokens, then echo them with newlines
+    TOKEN_wd
+    #_2DUP_wd EMIT_wd EMIT_wd #should emit: len tokbuff
+
+    TELL_wd NL_wd
+
+    TOKEN_wd TELL_wd NL_wd
+    EXIT_wd
+
+TEST_FIND_wd: do_colon #Takes input on STDIN: if valid word, should emit XT. Else emit 0
+    # Emit ptr to LATEST
+    LATEST_wd _at_wd CELLBYTES_wd EMIT_wd EMIT_wd
+
+    TOKEN_wd
+
+    # TRY str= with token?
+    #DUP_wd LATEST_wd _at_wd _2plus_wd STR_eq_wd EMIT_wd
+
+    # Try to find token
+    FIND_wd CELLBYTES_wd EMIT_wd EMIT_wd
+    EXIT_wd
+
 # Should emit "H ii"
 TEST_wd: do_colon
 TEST_bd:
@@ -1229,6 +1592,8 @@ TEST_bd:
 
     #TEST_BRANCH_wd
 
+    #TEST_TOKEN_wd
+    #TEST_FIND_wd
 
     HALT1_wd
 
@@ -1241,10 +1606,12 @@ MAIN_wd: do_colon
 
 
 # If main returns, it will return here, so we can error out
+QUIT_hd: 0 0   4   51 55 49 54 #"QUIT"
 QUIT_wd: do_colon
 QUIT_bd:
     MAIN_wd
     HALT1_wd
+
 
 # =============================== MAIN LOOP
 
@@ -1261,9 +1628,17 @@ forth_entry_const: QUIT_bd #TEMP: where do we start executing forth
 forth_canary_val: 0CAFE
 forth_stack_base_val: dstack_base #(+)
 forth_rstack_base_val: rstack_base
+forth_init_latest_val: QUIT_hd
+
 @2100 # forth_init
     # write 0d to entry so that we halt if we start executing at 0
     entry entry; nD entry;
+
+    # Update latest to point to quit
+    LATEST_val LATEST_val; forth_init_latest_val Z; Z LATEST_val; Z Z;
+
+    # Preload first char into _C (we use it for peeking)
+    C_ C_; IN C_;
 
     #init SP_, RSP_ to point (-) to their stacks
     NOSP_ NOSP_; forth_stack_base_val NOSP_;
