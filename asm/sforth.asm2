@@ -2,24 +2,11 @@
 # (i.e. forth-style inner loop, can simply list addresses of subroutines and it will nest them properly)
 #
 # ==== MAIN FORTH TODO ======:
-# - INTERPRET
-# - IMMEDIATE, [, ]
-# - :, ;
-#
-# #==== Post escape:
-# - ' ( lookup word )
-# - quoting / comments
-# - control flow
-# - printing
-# - VALUE X, TO X, +TO X
-# - fix QUIT (should properly reset things RSP, BASE, DSP?, etc)
 #
 # Low priority:
-# - Optimizations (1+, -!, etc)
-# - FLAGS? (F_IMMED), bitwise ops (needed for 2nd outer interp, but doing it lazily for now)
+# - FLAGS? [F_IMMED], bitwise ops [needed for 2nd outer interp, but doing it lazily for now]
 # - shifts, bitwise ops
 # - STRCHARS can just be a CMOVE into stack space, with special case for TOS
-# - <CFA
 #
 # LONG-TERM-PROJECT: NEG-OPTIMIZATION?
 # - word-addresses negative? (fetch CWA goes from 3 to 1)
@@ -360,6 +347,8 @@ EXECUTE_cd: # Executes word at CWA, will continue at NWA
     Z Z NEXT_cd;
 
 
+@879 #calculate this so that exit_wd ends up at 880, for debugging
+EXIT_hd: 0 0 4 "EXIT"
 @880 EXIT_wd: ?  # Exits a forth-word
     EXIT_cd:
     # Pops NWA from return stack
@@ -375,7 +364,7 @@ EXECUTE_cd: # Executes word at CWA, will continue at NWA
 
 @900 #WORDS
 
-EXECUTE_hd: 0 0 7 "EXECUTE"
+EXECUTE_hd: EXIT_hd 0 7 "EXECUTE"
 EXECUTE_wd: ? # ( xt -- ; executes word on TOS, then continues)
     # NWA stays where it was, we'll return to
     # wherever EXECUTE was called from
@@ -637,6 +626,25 @@ _ROT_wd: ? # ( a b tos -- tos a b )
     TOS TOS; Y TOS; #TOS becomes b
     Z Z NEXT_cd
 
+PICK_hd: _ROT_hd 0 4 "PICK"
+PICK_wd: ? # ( ... s2 s1 s0 n -- ... s2 s1 s0 s_n )
+    # n is in TOS(+)
+    # if n == 0, we want to read NOSP[0]
+    # for n > 0, we want to go deeper into the stack (higher in mem)
+
+    TOS NOSP_; # NOSP(-) -= n (go towards higher memory addresses, deeper)
+
+    ### fetch NOSP+n into T-
+    T T;
+    ?+5 ?+4; NOSP_  ?+1; 0 T; # GADGET: @NEGNOS(Z)
+
+    TOS Z; Z NOSP_; # NOSP(-) += n (return to normal)
+
+    # put fetched val in TOS
+    TOS TOS; T TOS;
+
+    Z Z NEXT_cd
+
 # ================================================================
 #
 #                       VARS / CONSTS
@@ -677,7 +685,7 @@ do_const: # push *(CWA+1)
     Z Z NEXT_cd
 
 # Outer interp vars
-BASE_hd: _ROT_hd 0 4 "BASE"
+BASE_hd: PICK_hd 0 4 "BASE"
 BASE_wd:  do_var    BASE_val: 0A
 STATE_hd: BASE_hd 0 5 "STATE"
 STATE_wd: do_var    STATE_val: 0
@@ -1676,13 +1684,14 @@ NUMBER_wd: do_colon #(strp -- number 1  OR  0 )
 
 # ================================================================
 #
-#                       DICT WORDS
+#                       DICTIONARY WORDS
 #
 # ================================================================
 # , STR,
 # (vars:) WIP
 # CREATE
 # >CFA >DFA
+# : ;
 # ?IMMED
 # TODO: IMMEDIATE?
 # FIND
@@ -1704,7 +1713,7 @@ STR_comma_wd: do_colon #( strp - [copies x into dict, encloses] )
 WIP_hd: STR_comma_hd 0 3 "WIP"
 WIP_wd: do_var 0
 
-CREATE_hd: STR_comma_hd 0 6 "CREATE"
+CREATE_hd: WIP_hd 0 6 "CREATE"
 CREATE_wd: do_colon # ( strp - )
     # creates wordheader at DP, encloses it in dict
     # links to LATEST
@@ -1735,7 +1744,24 @@ _qIMMED_wd: do_colon #(word_header_address - 1/0 [if is immed])
     _1plus_wd _at_wd _0ne_wd EXIT_wd
 
 
-FIND_hd: _qIMMED_hd 0 4 "FIND"
+_colon_hd: _qIMMED_hd 0 1 ":"
+_colon_wd: do_colon
+    DP_wd _at_wd WIP_wd _bang_wd # Point WIP to current word
+    TOKEN_wd CREATE_wd    #read token + create header
+    DO_COLON_wd _comma_wd #setup CFA with do_colon
+    LIT_wd 1 STATE_wd _bang_wd #Enter compile mode
+    EXIT_wd
+
+_semicolon_hd: _colon_hd 1 1 ";" #IMMEDIATE
+_semicolon_wd: do_colon
+    LW_EXIT_wd _comma_wd #enclose EXIT_wd
+    WIP_wd _at_wd LATEST_wd _bang_wd # Link WIP into latest
+    LIT_wd 0 WIP_wd _bang_wd # Clear WIP
+    LIT_wd 0 STATE_wd _bang_wd # exit compile mode
+    EXIT_wd
+
+
+FIND_hd: _semicolon_hd 0 4 "FIND"
 FIND_wd: do_colon # (strp - [dict_header or 0])
 
     # Start searching at latest header
@@ -2178,8 +2204,8 @@ forth_init_dp_val: 3000
     # Init DP
     DP_val DP_val; forth_init_dp_val Z; Z DP_val; Z Z;
 
-    # Preload first char into _C (we use it for peeking)
-    C_ C_; IN C_;
+    # Preload ' ' into _C (we use it for peeking)
+    C_ C_; i20 C_;
 
     #init SP_, RSP_ to point (-) to their stacks
     NOSP_ NOSP_; forth_stack_base_val NOSP_;
