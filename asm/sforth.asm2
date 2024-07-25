@@ -2,12 +2,7 @@
 # (i.e. forth-style inner loop, can simply list addresses of subroutines and it will nest them properly)
 #
 # ==== MAIN FORTH TODO ======:
-# - , STR, (cmove?)
-# - FLAGS? (F_IMMED), bitwise ops
-# - >CFA, >DFA, <CFA
-# - CREATE
 # - INTERPRET
-# - fix QUIT (should properly reset things RSP, BASE, DSP?, etc)
 # - IMMEDIATE, [, ]
 # - :, ;
 # - LITSTRING
@@ -18,11 +13,14 @@
 # - control flow
 # - printing
 # - VALUE X, TO X, +TO X
+# - fix QUIT (should properly reset things RSP, BASE, DSP?, etc)
 #
 # Low priority:
 # - Optimizations (1+, -!, etc)
+# - FLAGS? (F_IMMED), bitwise ops (needed for 2nd outer interp, but doing it lazily for now)
 # - shifts, bitwise ops
 # - STRCHARS can just be a CMOVE into stack space, with special case for TOS
+# - <CFA
 #
 # LONG-TERM-PROJECT: NEG-OPTIMIZATION?
 # - word-addresses negative? (fetch CWA goes from 3 to 1)
@@ -308,8 +306,6 @@ strcmp:
 @632 n1 627; # CD2(+) ++
 @635 n1 62A; # CD3(+) ++
 
-
-
 # memcpy_check
 @638  n1 X memcpy_loop #   : $-1 X loop     # X++, if X<=0, jump strcmp_loop
 
@@ -325,14 +321,16 @@ strcmp:
 # ================================================================
 
 @800
-NEXT_cd:
+NEXT_cd: #Sets CWA=*NWA, NWA++, goes to EXECUTE_cd
 @800   NWA: 0 Z ;       # fetch from NWA into Z(-)
 @803   810 810; Z 810; # flip Z into CWA(+), @810
 @809   n1 NWA ; # NWA++
        Z Z 810  # continue (skip some bytes for easier alignment of @s)
 
+@810
+EXECUTE_cd: # Executes word at CWA, will continue at NWA
      # fetch CW into jumpPTR (@81B)
-@810   CWA: 0 Z;
+       CWA: 0 Z;
 @813   81B 81B;
 @816   Z 81B ;
 
@@ -378,6 +376,26 @@ NEXT_cd:
 
 @900 #WORDS
 
+EXECUTE_hd: 0 0 7 "EXECUTE"
+EXECUTE_wd: ? # ( xt -- ; executes word on TOS, then continues)
+    # NWA stays where it was, we'll return to
+    # wherever EXECUTE was called from
+
+    # set CWA to TOS (the word to execute)
+    CWA CWA; TOS Z; Z CWA; Z Z; #CWA+ = TOS+
+
+    # == Drop execution token (Pop NOS into TOS)
+    TOS TOS;
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+    Z TOS;
+
+    # Jump to EXECUTE_cd
+    # this is jumping into NEXT_cd, but after we would have loaded
+    # CWA=*NWA and incremented NWA
+    # This will execute CWA (xt) and return to NWA
+    Z Z EXECUTE_cd
+
 
 # ================================================================
 #
@@ -389,7 +407,7 @@ NEXT_cd:
 # DUP DROP 2DROP SWAP OVER 2SWAP ROT -ROT
 
 
-_toR_hd: 0 0 2 ">R"
+_toR_hd: EXECUTE_hd 0 2 ">R"
 _toR_wd: ? #(pushes from data stack to return stack)
 _toR_cd:
     n1 RSP_ ; #grow return stack
@@ -1662,9 +1680,63 @@ NUMBER_wd: do_colon #(strp -- number 1  OR  0 )
 #                       DICT WORDS
 #
 # ================================================================
+# , STR,
+# (vars:) WIP
+# CREATE
+# >CFA >DFA
+# ?IMMED
+# TODO: IMMEDIATE?
 # FIND
 
-FIND_hd: NUMBER_hd 0 4 "FIND"
+_comma_hd: NUMBER_hd 0 1 ","
+_comma_wd: do_colon #( x - [encloses x in dict] )
+    DP_wd _at_wd _bang_wd #put X at *DP
+    LIT_wd 1 DP_wd _plusbang_wd #inc DP
+    EXIT_wd
+
+STR_comma_hd: _comma_hd 0 4 "STR,"
+STR_comma_wd: do_colon #( strp - [copies x into dict, encloses] )
+    DP_wd _at_wd TUCK_wd  # ( DP@ strp DP@ )
+    STRCPY_wd #Copy into dict (DP@)
+    _at_wd # (strlen)
+    _1plus_wd DP_wd _plusbang_wd # inc DP by strlen+1
+    EXIT_wd
+
+WIP_hd: STR_comma_hd 0 3 "WIP"
+WIP_wd: do_var 0
+
+CREATE_hd: STR_comma_hd 0 6 "CREATE"
+CREATE_wd: do_colon # ( strp - )
+    # creates wordheader at DP, encloses it in dict
+    # links to LATEST
+    # sets WIP to point to curr header
+
+    DP_wd _at_wd WIP_wd _bang_wd  #point WIP to DP
+
+    # Create header:
+    LATEST_wd _at_wd _comma_wd # link: latest
+    LIT_wd 0 _comma_wd         # flags: 0
+    STR_comma_wd               # enclose string header
+    EXIT_wd
+
+_toCFA_hd: CREATE_hd 0 4 ">CFA"
+_toCFA_wd: do_colon #(word_header_address - CFA)
+    _2plus_wd #skip link and flag
+    DUP_wd _at_wd # get length
+    _plus_wd _1plus_wd # Skip string
+    EXIT_wd
+
+_toDFA_hd: _toCFA_hd 0 4 ">DFA"
+_toDFA_wd: do_colon #(word_header_address - DFA)
+    _toCFA_wd _1plus_wd EXIT_wd
+
+# TODO: this isn't correct, later gotta add proper flags
+_qIMMED_hd: _toDFA_hd 0 6 "?IMMED"
+_qIMMED_wd: do_colon #(word_header_address - 1/0 [if is immed])
+    _1plus_wd _0ne_wd EXIT_wd
+
+
+FIND_hd: _qIMMED_hd 0 4 "FIND"
 FIND_wd: do_colon # (strp - [dict_header or 0])
 
     # Start searching at latest header
@@ -1694,6 +1766,24 @@ FIND_wd: do_colon # (strp - [dict_header or 0])
     # (0 strp) reached nullptr, return 0
     DROP_wd EXIT_wd
 
+# ================================================================
+#
+#                       EXECUTION WORDS
+#
+# ================================================================
+# INTERPRET
+
+
+INTERPRET_hd: FIND_hd 0 9 "INTERPRET"
+INTERPRET_wd: do_colon
+    # Outer interpreter
+    # Grabs 1 word, executes/compiles it
+    # Grab a token:
+    # - try to find it
+    #   IF FOUND:
+    #
+    #
+    EXIT_wd
 
 # ================================================================
 #
@@ -1928,6 +2018,37 @@ TEST_STRCPY_wd: do_colon #Should emit "Hello"
 
     EXIT_wd
 
+TEST_CREATE_wd: do_colon #Should emit 00 00 00 30 (first not found, then found)
+    #Creates a new word at WIP called "HELLO"
+    LITSTR_wd 5 "HELLO"
+    CREATE_wd
+
+    # Search for it
+    LITSTR_wd 5 "HELLO"
+    FIND_wd
+    CELLBYTES_wd EMIT_wd EMIT_wd
+
+    # enclose HELLO at latest
+    WIP_wd _at_wd LATEST_wd _bang_wd
+
+
+    #LITSTR_wd 2 "R>"
+    LITSTR_wd 5 "HELLO"
+    FIND_wd
+    CELLBYTES_wd EMIT_wd EMIT_wd
+
+    EXIT_wd
+
+TEST_EXECUTE_wd: do_colon # Should emit "A"
+    LIT_wd 41
+
+    LITSTR_wd 4 "EMIT"
+    FIND_wd _toCFA_wd
+    #CELLBYTES_wd EMIT_wd EMIT_wd #DEBUG: show found CFA
+    EXECUTE_wd
+
+    EXIT_wd
+
 # Should emit "H ii"
 TEST_wd: do_colon
 TEST_bd:
@@ -1946,7 +2067,11 @@ TEST_bd:
     #TEST_FIND_wd
 
     #TEST_NUMBER_wd
-    TEST_STRCPY_wd
+    #TEST_STRCPY_wd
+    #TEST_CREATE_wd
+
+    TEST_EXECUTE_wd
+
 
     HALT1_wd
 
@@ -1959,7 +2084,7 @@ MAIN_wd: do_colon
 
 
 # If main returns, it will return here, so we can error out
-QUIT_hd: FIND_hd 0 4 "QUIT"
+QUIT_hd: INTERPRET_hd 0 4 "QUIT"
 QUIT_wd: do_colon
 QUIT_bd:
     MAIN_wd
