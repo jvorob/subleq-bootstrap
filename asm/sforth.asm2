@@ -5,7 +5,6 @@
 # - INTERPRET
 # - IMMEDIATE, [, ]
 # - :, ;
-# - LITSTRING
 #
 # #==== Post escape:
 # - ' ( lookup word )
@@ -1733,7 +1732,7 @@ _toDFA_wd: do_colon #(word_header_address - DFA)
 # TODO: this isn't correct, later gotta add proper flags
 _qIMMED_hd: _toDFA_hd 0 6 "?IMMED"
 _qIMMED_wd: do_colon #(word_header_address - 1/0 [if is immed])
-    _1plus_wd _0ne_wd EXIT_wd
+    _1plus_wd _at_wd _0ne_wd EXIT_wd
 
 
 FIND_hd: _qIMMED_hd 0 4 "FIND"
@@ -1773,17 +1772,72 @@ FIND_wd: do_colon # (strp - [dict_header or 0])
 # ================================================================
 # INTERPRET
 
+# Temp bootstrap words:
+_qEXECUTE_wd: do_colon # ( wha -- )
+    # IF state 0 or wd is immediate, execute
+    # else compile it
+
+    DUP_wd _toCFA_wd SWAP_wd # (cfa wha -- )
+
+
+    #CELLBYTES_wd EMIT_wd EMIT_wd
+    _qIMMED_wd _0BRANCH_wd 3 #(cfa)
+        # If immediate:
+        EXECUTE_wd EXIT_wd
+
+    # (cfa)
+    STATE_wd _at_wd _0BRANCH_wd 3
+        # If state=1 (compile)
+        _comma_wd EXIT_wd
+
+    #else: state = 0
+    EXECUTE_wd EXIT_wd
+
+
+_qNUMBER_wd: do_colon # ( N -- [?])
+    # Compiles if state 1, else leaves on stack
+    STATE_wd _at_wd _0BRANCH_wd 4
+        # If state=1
+        LW_LIT_wd _comma_wd _comma_wd #compile "LIT N"
+
+    # If compiled, stack is empty
+    # If state=0, leave number on stack
+    EXIT_wd
+
+
+INTERPRET1_wd: do_colon
+    TOKEN_wd
+
+    DUP_wd FIND_wd # Try FIND (tok wha|0 -- )
+    DUP_wd
+    _0BRANCH_wd 005
+        # If found word,
+        SWAP_wd DROP_wd #drop token
+        _qEXECUTE_wd EXIT_wd #exec/compile, exit
+
+    DROP_wd # We have an extra 0 becasue we didn't ?DUP
+
+    #ELSE:
+    DUP_wd NUMBER_wd # Try NUMBER (tok (n 1 | 0) -- )
+    _0BRANCH_wd 005
+        # If found number
+        SWAP_wd DROP_wd #drop token
+        _qNUMBER_wd EXIT_wd
+
+    #ELSE: invalid input
+    NL_wd
+    TELL_wd
+    LIT_wd 3F EMIT_wd  # '?'
+    NL_wd
+
+    HALT1_wd
+
+    EXIT_wd
 
 INTERPRET_hd: FIND_hd 0 9 "INTERPRET"
 INTERPRET_wd: do_colon
-    # Outer interpreter
-    # Grabs 1 word, executes/compiles it
-    # Grab a token:
-    # - try to find it
-    #   IF FOUND:
-    #
-    #
-    EXIT_wd
+    INTERPRET1_wd
+    BRANCH_wd 0FFFE # branch -2
 
 # ================================================================
 #
@@ -2070,7 +2124,9 @@ TEST_bd:
     #TEST_STRCPY_wd
     #TEST_CREATE_wd
 
-    TEST_EXECUTE_wd
+    #TEST_EXECUTE_wd
+
+    INTERPRET_wd
 
 
     HALT1_wd
