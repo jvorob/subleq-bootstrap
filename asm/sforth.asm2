@@ -733,6 +733,7 @@ TOKP_hd: TOK_BUFF_hd 0 4 "TOKP"
 TOKP_wd:     do_var   TOKP_val: 0
 
 
+restart_wd_addr: 0DEAD # Init will fill this in, since we don't have forward lebels
 
 # Other Vars:
 # LATEST (defined just before main loop, since is end of dict)
@@ -1856,9 +1857,10 @@ INTERPRET1_wd: do_colon
     LIT_wd 3F EMIT_wd  # '?'
     NL_wd
 
-    HALT1_wd
+    # RESTART (the assmebler can't do forward labels, so init stashes the addr here)
+    LIT_wd restart_wd_addr _at_wd EXECUTE_wd
+    HALT1_wd #shouldn't reach here
 
-    EXIT_wd
 
 INTERPRET_hd: FIND_hd 0 9 "INTERPRET"
 INTERPRET_wd: do_colon
@@ -2152,7 +2154,7 @@ TEST_bd:
 
     #TEST_EXECUTE_wd
 
-    INTERPRET_wd
+    #INTERPRET_wd
 
 
     HALT1_wd
@@ -2160,17 +2162,86 @@ TEST_bd:
 
 # Should never return
 MAIN_wd: do_colon
-    TEST_wd
+    INTERPRET_wd
     EXIT_wd
 
 
 
+# ========= STARTUP FLOW
+# Restart: Resets transient state to known-good values for outer interp
+#          ( BASE, WIP, STATE, etc )
+#          Clears RSP (RESTART is outermost func)
+#          Calls MAIN
+#          if return from main, halt
+
 # If main returns, it will return here, so we can error out
-QUIT_hd: INTERPRET_hd 0 4 "QUIT"
-QUIT_wd: do_colon
-QUIT_bd:
-    MAIN_wd
+RESTART_hd: INTERPRET_hd 0 7 "RESTART"
+RESTART_wd: do_colon
+RESTART_bd:
+    LIT_wd 0A BASE_wd _bang_wd # BASE 10
+
+    # Init return stack
+    RS0_wd _1plus_wd NEG_wd RSP__wd _bang_wd # RSP(-) = RS0+1, points to canary
+
+    #TODO: fix canaries
+
+    MAIN_wd # JUMP TO MAIN
+
+    # SHOULDN'T EXIT
+    LITSTR_wd 0B "MAIN EXITED" TELL_wd NL_wd
     HALT1_wd
+
+# ======= INITIAL CONSTS for startup stuff
+forth_canary_val: 0CAFE
+#forth_stack_base_val: dstack_base #(+)
+forth_rstack_base_val: rstack_base
+forth_init_dp_val: 3000
+forth_init_restart_wd: RESTART_wd # first forth word we jump to after START
+
+
+# Start: inits persistent state constants
+#   Sets up for execution of primaries (SP, TOS, canaries)
+#
+#   Copies in initial constants that we weren't able to due to assembler
+#        Setups up NWA to point to RESTART, jumps to NEXT
+#        ( LATEST, DP, etc, NOSP_, etc )
+#
+forth_init_latest_val: ? # Constant that points to START_hd
+START_hd: RESTART_hd 0 5 "START"
+START_wd: ?
+START_cd: # Starts executing here with no state
+
+    #=== INIT STACK
+    # (Stack base is at DS0. First item on stack will be at DS0
+    #  With empty stack, SP should point to DS0+1
+    #  Because we're using NOSP (TOS in a reg), NOSP points to DS0+1)
+    #NOSP_ NOSP_; forth_stack_base_val NOSP_; # NOSP(-) = DS0
+    NOSP_ NOSP_; DS0_val NOSP_; # NOSP(-) = DS0
+    i2 NOSP_ ; #NOSP(-) -= 2 ; NOSP(-) = DS0+2
+
+    # Init stack canary at TOS (will be written to DS0+1)
+    TOS TOS; forth_canary_val Z; Z TOS; Z Z; #push CAFE to TOS as a marker?
+
+    # ==== Init consts
+    # (we'd assemble these directly but we don't
+    #  have forward labels in asm2)
+    DP_val          DP_val         ; forth_init_dp_val     Z; Z DP_val;     Z Z;
+    LATEST_val      LATEST_val     ; forth_init_latest_val Z; Z LATEST_val; Z Z;
+    restart_wd_addr restart_wd_addr; forth_init_restart_wd Z; Z restart_wd_addr; Z Z;
+
+    # ==== MISC ====
+    # We assume latest char is in C_ for buffering? (TODO: CHANGE THIS?)
+    # Preload it with 0x20 (' ') for now
+    C_ C_; i20 C_;
+
+    # ==== START EXECUTING RESTART
+    # ( it will initialize return stack and other vars)
+
+    # set up NWA to point to first word of RESTART
+    #   ( we don't want to enter RESTART as a subword, just start executing )
+    NWA NWA; forth_init_restart_wd Z; Z NWA; # NWA = RESTART >CFA
+    n1 NWA; # NWA = RESTART >DFA
+    Z Z NEXT_cd # Start executing restart
 
 
 # =============================== MAIN LOOP
@@ -2184,45 +2255,15 @@ Z Z 2100
 Z Z halt0
 
 
-forth_entry_const: QUIT_bd #TEMP: where do we start executing forth
-forth_canary_val: 0CAFE
-forth_stack_base_val: dstack_base #(+)
-forth_rstack_base_val: rstack_base
-forth_init_latest_val: QUIT_hd
-forth_init_dp_val: 3000
 
 @2100 # forth_init
+    # SUBLEQ ASM STUFF
+
     # write 0d to entry so that we halt if we start executing at 0
     entry entry; nD entry;
 
-    # Update latest to point to quit
-    LATEST_val LATEST_val; forth_init_latest_val Z; Z LATEST_val; Z Z;
+    Z Z START_cd # Jump to START
 
-    # Init BASE to 10
-    BASE_val BASE_val; nA BASE_val;
-
-    # Init DP
-    DP_val DP_val; forth_init_dp_val Z; Z DP_val; Z Z;
-
-    # Preload ' ' into _C (we use it for peeking)
-    C_ C_; i20 C_;
-
-    #init SP_, RSP_ to point (-) to their stacks
-    NOSP_ NOSP_; forth_stack_base_val NOSP_;
-    #NOTE: since TOS is in a var, we need to do special-casing to catch errors
-    # NOSP_ points to 2nd value on stack (NextOnStack)
-    # Initial value of TOS is a canary, and should go at stack_base+1
-    # First real value on stack will then go at stack_base
-    # So NOSP starts at base+2
-    i2 NOSP_; # NOSP +=2, (i.e. (-)NOSP -=2 )
-    TOS TOS; forth_canary_val Z; Z TOS; Z Z; #push CAFE to TOS as a marker?
-
-    RSP_ RSP_; forth_rstack_base_val RSP_;
-    i1 RSP_; #RSP points to base+1, canary
-
-    # set up NWA, jump NEXT
-    NWA NWA; forth_entry_const Z; Z NWA;
-    Z Z NEXT_cd
 
 
 @2200 # custom_test:
