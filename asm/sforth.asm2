@@ -815,7 +815,7 @@ LW_EXIT_wd: do_const EXIT_wd
 # ================================================================
 # @ ! +! -!
 # + - NEG 1+ 2+ 1- 2-
-# CELLBYTES
+# CSPLIT CJOIN
 # * /MOD
 # TODO 2* >> << AND OR NOT
 
@@ -939,9 +939,9 @@ _2minus_wd: ? #( a -- a-2)
 
 # ============= BITWISE STUFF
 
-# used to split a word into its low and high bytes
-CELLBYTES_hd: _2minus_hd 0 9 "CELLBYTES"
-CELLBYTES_wd: ? # ( x -- hibyte(x) lobyte(x))
+# splits word into 2 bytes, LE on top
+CSPLIT_hd: _2minus_hd 0 6 "CSPLIT"
+CSPLIT_wd: ? # ( x -- hibyte(x) lobyte(x))
     alu_A alu_A;   TOS Z; Z alu_A; Z Z;  # alu_A := x
 
     # Get hibyte:
@@ -962,6 +962,25 @@ CELLBYTES_wd: ? # ( x -- hibyte(x) lobyte(x))
 
     Z Z NEXT_cd
 
+# Undoes CSPLIT
+CJOIN_hd: CSPLIT_hd 0 5 "CJOIN"
+CJOIN_wd: ? # ( hibyte lobyte -- x )
+
+    # ### Pop NOS(hibyte) into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    alu_A alu_A; Z alu_A; Z Z;  # alu_A := hibyte(+)
+
+    # Shift hibyte up
+    alu_B alu_B;  n8 alu_B;  # alu_B := 8
+    T T; alu_ls T;    # T- = (x << 8)
+
+    # add hibyte into TOS
+    T TOS ;
+
+    Z Z NEXT_cd
+
 
 _times_exit: # We jump here once X==0
     # NOTE: Z was clobbered before jump
@@ -969,7 +988,7 @@ _times_exit: # We jump here once X==0
     Z Z NEXT_cd
 
 # ================== TIMES ENTRY POINT
-_times_hd: CELLBYTES_hd 0 1 "*"
+_times_hd: CJOIN_hd 0 1 "*"
 _times_wd: ? # (x y - x*y )
 
     alu_B alu_B; n1 alu_B; # alu_B is always 1
@@ -1867,7 +1886,7 @@ _qEXECUTE_wd: do_colon # ( wha -- )
     DUP_wd _toCFA_wd SWAP_wd # (cfa wha -- )
 
 
-    #CELLBYTES_wd EMIT_wd EMIT_wd
+    #CSPLIT_wd EMIT_wd EMIT_wd
     _qIMMED_wd _0BRANCH_wd 3 #(cfa)
         # If immediate:
         EXECUTE_wd EXIT_wd
@@ -2128,7 +2147,7 @@ TEST_TOKEN_wd: do_colon # Should consume several tokens
 
 TEST_FIND_wd: do_colon #Takes input on STDIN: if valid word, should emit XT. Else emit 0
     # Emit ptr to LATEST
-    LATEST_wd _at_wd CELLBYTES_wd EMIT_wd EMIT_wd
+    LATEST_wd _at_wd CSPLIT_wd EMIT_wd EMIT_wd
 
     TOKEN_wd
 
@@ -2136,12 +2155,12 @@ TEST_FIND_wd: do_colon #Takes input on STDIN: if valid word, should emit XT. Els
     #DUP_wd LATEST_wd _at_wd _2plus_wd STR_eq_wd EMIT_wd
 
     # Try to find token
-    FIND_wd CELLBYTES_wd EMIT_wd EMIT_wd
+    FIND_wd CSPLIT_wd EMIT_wd EMIT_wd
 
     # Try to find R>
     LITSTR_wd 0B "Finding R>" 0A TELL_wd
     LITSTR_wd 2 "R>" FIND_wd
-    CELLBYTES_wd EMIT_wd EMIT_wd
+    CSPLIT_wd EMIT_wd EMIT_wd
 
     EXIT_wd
 
@@ -2180,7 +2199,7 @@ TEST_CREATE_wd: do_colon #Should emit 00 00 00 30 (first not found, then found)
     # Search for it
     LITSTR_wd 5 "HELLO"
     FIND_wd
-    CELLBYTES_wd EMIT_wd EMIT_wd
+    CSPLIT_wd EMIT_wd EMIT_wd
 
     # enclose HELLO at latest
     WIP_wd _at_wd LATEST_wd _bang_wd
@@ -2189,7 +2208,7 @@ TEST_CREATE_wd: do_colon #Should emit 00 00 00 30 (first not found, then found)
     #LITSTR_wd 2 "R>"
     LITSTR_wd 5 "HELLO"
     FIND_wd
-    CELLBYTES_wd EMIT_wd EMIT_wd
+    CSPLIT_wd EMIT_wd EMIT_wd
 
     EXIT_wd
 
@@ -2198,7 +2217,7 @@ TEST_EXECUTE_wd: do_colon # Should emit "A"
 
     LITSTR_wd 4 "EMIT"
     FIND_wd _toCFA_wd
-    #CELLBYTES_wd EMIT_wd EMIT_wd #DEBUG: show found CFA
+    #CSPLIT_wd EMIT_wd EMIT_wd #DEBUG: show found CFA
     EXECUTE_wd
 
     EXIT_wd
