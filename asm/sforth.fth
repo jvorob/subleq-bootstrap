@@ -95,6 +95,9 @@
 ( Recurse into current word )
 : RECURSE WIP @ >CFA , ; IMMEDIATE
 
+( TAILCALL a word, i.e. that word will return to your caller )
+: TAILCALL LW_TAILCALL , ; IMMEDIATE
+
 ( ============= VARIABLES ============= )
 
 : VARIABLE ( init_val [TOKEN] - )

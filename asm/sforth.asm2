@@ -317,11 +317,11 @@ NEXT_cd: #Sets CWA=*NWA, NWA++, goes to EXECUTE_cd
        Z Z 810  # continue (skip some bytes for easier alignment of @s)
 
 @810
-EXECUTE_cd: # Executes word at CWA, will continue at NWA
-     # fetch CW into jumpPTR (@81B)
-       CWA: 0 Z;
+RUN_cd: # Runs word at CWA, will continue at NWA
+
+   CWA:0     Z; # fetch CW into jumpPTR (@81B)
 @813   81B 81B;
-@816   Z 81B ;
+@816   Z   81B;
 
 # Jump to codeword
 @819 Z Z  @81B 0  #jumpPTR @ 81B
@@ -381,12 +381,36 @@ EXECUTE_wd: ? # ( xt -- ; executes word on TOS, then continues)
     i1 NOSP_; #shrink stack
     Z TOS;
 
-    # Jump to EXECUTE_cd
+    # Jump to RUN_cd
     # this is jumping into NEXT_cd, but after we would have loaded
     # CWA=*NWA and incremented NWA
     # This will execute CWA (xt) and return to NWA
-    Z Z EXECUTE_cd
+    Z Z RUN_cd
 
+# Lost word, pointer will be in constant
+TAILCALL_wd: ? #
+    # Executes next word in compiled order (NWA)
+    # Will return to caller's caller
+
+    # We want the CWA that is at *NWA
+    # However we can't just jump to next
+    # since we need to point NWA back into caller's caller
+    # So, manually fetch NWA
+    P1 P1; NWA P1; # NWA into P1(-)
+    ?+5 ?+4; P1 ?+1; 0 Z; # Fetch from P1(-) into Z(-)
+    CWA CWA; Z CWA; # CWA+ = *NWA+
+
+    # since we're a primary, caller is at NWA
+    # caller's caller is on RS
+
+    # Pops NWA from return stack
+    Z Z; ?+5 ?+4; RSP_ ?+1; 0 Z; # GADGET:FETCH_NEG
+    i1 RSP_; #shrink return stack
+
+    # Write into NWA properly
+    NWA NWA; Z NWA;
+
+    Z Z RUN_cd
 
 # ================================================================
 #
@@ -805,8 +829,13 @@ LW_LIT_wd: do_const LIT_wd
 LW_LITSTR_hd: LW_LIT_hd 0  9 "LW_LITSTR"
 LW_LITSTR_wd: do_const LITSTR_wd
 
+# TODO: this one isn't actually a lost word?
+# I just allow it to be used in all sorts of places
 LW_EXIT_hd: LW_LITSTR_hd 0 7 "LW_EXIT"
 LW_EXIT_wd: do_const EXIT_wd
+
+LW_TAILCALL_hd: LW_EXIT_hd 0 0B "LW_TAILCALL"
+LW_TAILCALL_wd: do_const TAILCALL_wd
 
 # ================================================================
 #
@@ -820,7 +849,7 @@ LW_EXIT_wd: do_const EXIT_wd
 # TODO 2* >> << AND OR NOT
 
 
-_at_hd: LW_EXIT_hd 0 1 "@"
+_at_hd: LW_TAILCALL_hd 0 1 "@"
 _at_wd: ? # ( addr - *addr )
 _at_cd:
     P1 P1; TOS P1; # P1(-) = addr
@@ -2322,6 +2351,10 @@ TEST_EXECUTE_wd: do_colon # Should emit "A"
 
     EXIT_wd
 
+TEST_TAILCALL_wd: do_colon # should emit "A" and not "X"
+    LIT_wd "A" TAILCALL_wd EMIT_wd
+    LIT_wd "X" EMIT_wd # shouldn't be reached
+
 # Should emit "H ii"
 TEST_wd: do_colon
 TEST_bd:
@@ -2336,7 +2369,7 @@ TEST_bd:
 
     #TEST_BRANCH_wd
 
-    TEST_TOKEN_wd
+    #TEST_TOKEN_wd
     #TEST_FIND_wd
 
     #TEST_NUMBER_wd
@@ -2344,9 +2377,9 @@ TEST_bd:
     #TEST_CREATE_wd
 
     #TEST_EXECUTE_wd
+    TEST_TAILCALL_wd
 
     #INTERPRET_wd
-
 
     HALT1_wd
 
