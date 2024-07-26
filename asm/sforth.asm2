@@ -95,12 +95,15 @@ P1:0 P2:0 Q1:0 Q2:0
       0  0  0  0     0  0  0   @2F R: 0
 
 @30 #Global vars (_ indicates it's negated)
-C_:0  N:0  offset_:0
+C_:0  C_needs_fetch:1
 
 #C is last char read (-)   (treated as first char of input)
-#N is where read_num puts its result (+)
-#R is retval: address to return to
-#offset is current offset in the binary (-)
+#C_needs_fetch will be 0 if C_ holds a valid char
+#    That way if C already holds a previous char, we
+#    can skip fetching a fresh one like so:
+#      Z C_needs_fetch ?+6
+#          C_ C_; IN C_;  # needs_fetch=1, fetch a fresh char
+#      # else, needs_fetch==0, we already had one
 
 
 
@@ -1350,8 +1353,17 @@ KEY_wd: ? # Fetches in a char (buffers through C_)
     ?+9  ?+8 ; NOSP_ ?+5; # .
     0    0   ; T   0; # .
 
+    # We might have pushed back a character previously, check for that
+    Z C_needs_fetch ?+6
+        C_ C_; IN C_;  # if needs_fetch=1, fetch a fresh char
+    # Else, use the one from C_
+
+    # Put char into TOS
     TOS TOS; C_ TOS;
-    C_ C_; IN C_;
+
+    # Mark needs_fetch=1, since we consumed the char from it
+    C_needs_fetch C_needs_fetch;
+    n1 C_needs_fetch ; #needs_fetch=1
 
     # check for EOF (<0)
     n1 TOS haltE #if TOS+1 <= 0, char was -1
@@ -1405,6 +1417,11 @@ TOKEN_cd_eof: Z Z haltE
 TOKEN_cd_comment: #TODO
     Z Z halt6
 
+
+
+
+
+
 TOKEN_cd_end:
     # We've poked all our chars in
     # Write TOKP
@@ -1413,7 +1430,7 @@ TOKEN_cd_end:
     # Write len to token_buff[0] (Y is (-))
     token_buff token_buff; Y token_buff;
 
-    #Return (token_buff -- )
+    #=== Return (token_buff -- )
 
     ### Push TOS into NOS
     T T; TOS T;
@@ -1426,6 +1443,41 @@ TOKEN_cd_end:
     # Put addr of token_buff into TOS
     TOS TOS; TOK_BUFF_val Z; Z TOS;
     Z Z NEXT_cd #EXIT
+
+
+
+# We got a token starting with \n
+# Push just that token, then return thru TOKEN_cd_end
+# mark C_needs_fetch=1, since we don't keep the \n
+TOKEN_cd_newline:
+    # Poke into string pointer at P1
+    # GADGET: POKE-:
+    ?+11 ?+10; P1 ?+D; # *(P-) = -C(-)
+    ?+C  ?+B ; P1 ?+8; # .
+    ?+9  ?+8 ; P1 ?+5; # .
+    0    0   ; C_   0; # .
+
+    # Note: we don't want to keep the \n for next time,
+    C_needs_fetch C_needs_fetch;
+    n1 C_needs_fetch ; #needs_fetch=1
+    C_ C_;
+
+    i1 Y;  # inc length (-)
+    i1 P1; # advance ptr P1(-)
+
+    Z Z TOKEN_cd_end
+
+# We finished reading a normal token that ended with a separator
+# We want to push back the separator for later use,
+# then return thru CD_end
+TOKEN_cd_endtoken:
+
+    # The last separator char is in C_,
+    # mark needs_fetch=0
+    C_needs_fetch C_needs_fetch TOKEN_cd_end
+
+
+
 
 # We've skipped all the preceding blanks, now go grab the actual token
 TOKEN_cd_readchars:
@@ -1441,14 +1493,15 @@ TOKEN_cd_readchars:
     i1 P1; # advance ptr P1(-)
     i1 Y;  # inc length (-)
 
-    #get next char
+    # just pushed C_, get next char
     C_ C_; IN C_;
     X X; C_ X; # X(+) = C(-)
 
     # Test value by repeatedly subtracting and testing <= 0
+    # - Keep grabbing chars until we hit a space or \n
     n1  X TOKEN_cd_eof        #  : $-1 X halt eof            # char <= -1, == EOF
     i1  X  ?                  #  : $1  X                     #
-    i20 X TOKEN_cd_end        #  : $20 X end                 # <=20, ' ' or \n or nonprint
+    i20 X TOKEN_cd_endtoken   #  : $20 X end                 # <=20, ' ' or \n or nonprint
     Z   Z TOKEN_cd_readchars  #  :                           # >20, poke it in, continue
 
 
@@ -1462,8 +1515,12 @@ TOKEN_wd: ? # Reads a token from IN
     Y Y; # len(-) = 0
     P1 P1; TOK_BUFF_val P1; i1 P1; #P1 points to token_buff[1] (first string char)
 
-    Z Z ?+6
     # Loop, repeatedly skipping comments and blanks until we find a char
+
+    # NOTE: Between invocations of TOKEN, we might have pushed back a char
+    # - After this point, C_ will be valid
+    # - MAKE SURE we set C_needs_fetch correctly when we exit TOKEN
+    Z C_needs_fetch ?+6  # If !needs_fetch, skip fetching
 TOKEN_cd_lstrip:
     C_ C_; IN C_; # Get next char (skip first time)
 
@@ -1471,15 +1528,17 @@ TOKEN_cd_lstrip:
     X X; C_ X; # X(+) = C(-)
 
     # Test value by repeatedly subtracting and testing <= 0
-    n1  X TOKEN_cd_eof        #  : $-1 X halt0               # char <= -1, == EOF
-    i1  X  ?                  #  : $1  X                     #
-    i20 X TOKEN_cd_lstrip     #  : $20 X skip_char           # <=20, ' ' or \n or nonprint
-     Z  Z TOKEN_cd_readchars  #  :  Z  Z char                # >20
-    #i30 X  ?                  #  : $30 X                     #
-    #iB  X TOKEN_cd_readchars  #  : $0B X char                # <=5B
-    #i1  X  ?                  #  : $1  X skip_comment        # <=5C '\'
-    ##i1  X TOKEN_cd_comment    #  : $1  X skip_comment        # <=5C '\'
-    # Z  Z TOKEN_cd_readchars  #  :  Z  Z char                # >5C
+    # - discard all leading spaces
+    # - if we get a newline before any token chars, special case it
+    # - otherwise go to normal token parsing
+    n1  X TOKEN_cd_eof        #  : $-1 X haltEOF             # char <= -1, == EOF
+    i1  X  ?                  #  : $1  X                     # ( undo -1 )
+    i9  X TOKEN_cd_readchars  #  : $9  X default             # <=09,
+    i1  X TOKEN_cd_newline    #  : $10 X newline             # <=0A, '\n'
+    i10 X  ?                  #                              #  (1A)
+    i5  X TOKEN_cd_readchars  #  : $5  X default             # <=1F,
+    i1  X TOKEN_cd_lstrip     #  : $1  X skip_spaces         # <=20, ' '
+     Z  Z TOKEN_cd_readchars  #  :  Z  Z default             # >20
 
     #shouldn't reach here
     0d 0d 0d
@@ -1851,9 +1910,16 @@ INTERPRET1_wd: do_colon
         SWAP_wd DROP_wd #drop token
         _qNUMBER_wd EXIT_wd
 
-    #ELSE: invalid input
-    NL_wd
-    TELL_wd
+    #ELSE:
+    # token is \n or invalid
+    DUP_wd _1plus_wd _at_wd  # ( tok firstchar )
+    LIT_wd 0A _eq_wd _0BRANCH_wd 003  # '\n' = IF
+        # If was \n: continue
+        DROP_wd EXIT_wd
+
+    # ELSE: invalid token, print a warning, restart
+    # ( tok )
+    NL_wd TELL_wd
     LIT_wd 3F EMIT_wd  # '?'
     NL_wd
 
@@ -2045,13 +2111,18 @@ TEST_BRANCH_wd: do_colon # Prints "*****" using a loop
 
     EXIT_wd
 
-TEST_TOKEN_wd: do_colon # SHould consume two tokens, then echo them with newlines
-    TOKEN_wd
-    #_2DUP_wd EMIT_wd EMIT_wd #should emit: len tokbuff
+TEST_TOKEN_wd: do_colon # Should consume several tokens
+    # When reading in "1 2\n3\n 4\n"
+    # Should output: "T1 T2 T\n T3 T4 T\n "
+    # (i.e. shouldn't drop newlines)
 
-    TELL_wd NL_wd
-
-    TOKEN_wd TELL_wd NL_wd
+    # Print T, then the token, then a space
+    TOKEN_wd LIT_wd 54 EMIT_wd TELL_wd SPACE_wd
+    TOKEN_wd LIT_wd 54 EMIT_wd TELL_wd SPACE_wd
+    TOKEN_wd LIT_wd 54 EMIT_wd TELL_wd SPACE_wd
+    TOKEN_wd LIT_wd 54 EMIT_wd TELL_wd SPACE_wd
+    TOKEN_wd LIT_wd 54 EMIT_wd TELL_wd SPACE_wd
+    TOKEN_wd LIT_wd 54 EMIT_wd TELL_wd SPACE_wd
     EXIT_wd
 
 TEST_FIND_wd: do_colon #Takes input on STDIN: if valid word, should emit XT. Else emit 0
@@ -2145,7 +2216,7 @@ TEST_bd:
 
     #TEST_BRANCH_wd
 
-    #TEST_TOKEN_wd
+    TEST_TOKEN_wd
     #TEST_FIND_wd
 
     #TEST_NUMBER_wd
@@ -2162,6 +2233,7 @@ TEST_bd:
 
 # Should never return
 MAIN_wd: do_colon
+    #TEST_wd
     INTERPRET_wd
     EXIT_wd
 
@@ -2182,6 +2254,9 @@ RESTART_bd:
 
     # Init return stack
     RS0_wd _1plus_wd NEG_wd RSP__wd _bang_wd # RSP(-) = RS0+1, points to canary
+
+
+    LITSTR_wd 08 "STARTING" TELL_wd NL_wd
 
     #TODO: fix canaries
 
@@ -2229,10 +2304,6 @@ START_cd: # Starts executing here with no state
     LATEST_val      LATEST_val     ; forth_init_latest_val Z; Z LATEST_val; Z Z;
     restart_wd_addr restart_wd_addr; forth_init_restart_wd Z; Z restart_wd_addr; Z Z;
 
-    # ==== MISC ====
-    # We assume latest char is in C_ for buffering? (TODO: CHANGE THIS?)
-    # Preload it with 0x20 (' ') for now
-    C_ C_; i20 C_;
 
     # ==== START EXECUTING RESTART
     # ( it will initialize return stack and other vars)
