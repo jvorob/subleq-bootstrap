@@ -552,8 +552,10 @@
                 ( ; prompt, continue )
                 DROP
                 BULKLOAD @ 0= IF
-                    SPACE STR" OK" TELL NL
-                    PROMPT
+                    STATE @ 0= IF
+                        SPACE STR" OK" TELL NL
+                        PROMPT
+                    THEN
                 THEN
 
             ELSE ( token failed to parse: error message, restart )

@@ -1533,7 +1533,8 @@ TOKEN_cd_lstrip:
     # - otherwise go to normal token parsing
     n1  X TOKEN_cd_eof        #  : $-1 X haltEOF             # char <= -1, == EOF
     i1  X  ?                  #  : $1  X                     # ( undo -1 )
-    i9  X TOKEN_cd_readchars  #  : $9  X default             # <=09,
+    i8  X TOKEN_cd_readchars  #  : $8  X default             # <=08,
+    i1  X TOKEN_cd_lstrip     #  : $1  X default             # <=09, '\t'
     i1  X TOKEN_cd_newline    #  : $10 X newline             # <=0A, '\n'
     i10 X  ?                  #                              #  (1A)
     i5  X TOKEN_cd_readchars  #  : $5  X default             # <=1F,
