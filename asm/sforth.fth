@@ -6,10 +6,9 @@
 : C' LW_LIT , CHAR , ; IMMEDIATE
 : (  KEY C' ) =
     [ LW_0BRANCH , -5 , ] ; IMMEDIATE
-
 ( We have comments now! (not nested though )
 ( ======== TODOS:
-- STR", 
+- STR",
 - FIX QUIT/RESTART [fix base, RSP, ???, set canaries]
 - Write ERRCHECK
     - Check stack underflow, rstack underflow
@@ -98,7 +97,7 @@
 
 ( ============= VARIABLES ============= )
 
-: VARIABLE ( init_val [TOKEN] - ) 
+: VARIABLE ( init_val [TOKEN] - )
     ( creates a new word that returns ptr to value)
     DP @         ( init_val hdr -- store current addr )
     TOKEN CREATE ( create header, links into latest )
@@ -106,9 +105,9 @@
 
     DO_VAR ,     ( set codefield as DO_VAR )
     ,            ( enclose initial value )
-; 
+;
 
-: CONSTANT ( init_val [TOKEN] - ) 
+: CONSTANT ( init_val [TOKEN] - )
     ( creates a new word that returns value)
     DP @         ( init_val hdr -- store current addr )
     TOKEN CREATE ( create header, links into latest )
@@ -116,7 +115,7 @@
 
     DO_CONST ,   ( set codefield )
     ,            ( enclose initial value )
-; 
+;
 
 ( ========== CONTROL FLOW ========= )
 
@@ -144,8 +143,8 @@
 
 ( test IF a ELSE b THEN )
 ( compiles to:
-  test 0BRANCH to_else a BRANCH to_then offset b _ 
-) 
+  test 0BRANCH to_else a BRANCH to_then offset b _
+)
 : IF ( -- if_fixup )
     LW_0BRANCH , ( enclose 0BRANCH )
     DP @         ( push addr of offset )
@@ -182,14 +181,14 @@
 ( BEGIN test WHILE loop WEND )
 ( compiles to:
   _ test 0BRANCH to_wend loop BRANCH to_test
-) 
+)
 ( NOTE: while compiles exactly like if, but need to escape it)
 : WHILE [ ' IF , ] ; IMMEDIATE
 
-( compiles a branch back to BEGIN, 
+( compiles a branch back to BEGIN,
   fixes up WHILE's offset to point after itself )
 : WEND ( begin_addr while_fix_addr -- )
-    LW_BRANCH , 
+    LW_BRANCH ,
     ( calculate offset to begin: begin-HERE)
     SWAP ( while_fix begin_addr )
     DP @ - , ( enclose offset to begin )
@@ -199,18 +198,18 @@
     DP @ ( while_fix here -- )
     OVER - ( while_fix HERE-while_fix -- )
     SWAP ! ( -- ; set while_fix offset to come here)
-    ; IMMEDIATE 
-    
+    ; IMMEDIATE
+
 
 ( ========== NESTED COMMENTS ========= )
 
-: ( 
+: (
     1 ( nesting_depth )
     BEGIN DUP 0> WHILE ( loop until paren depth 0 )
         KEY ( depth char -- )
         DUP '(' = IF ( depth char )
             DROP 1+ ( depth+1 )
-        ELSE 
+        ELSE
             DUP ')' = IF ( depth char )
                 DROP 1- ( depth-1)
             ELSE
@@ -224,11 +223,13 @@
 
 ( ( WOO HOO WE CAN DO NESTED ) )
 
+
 ( ========== OUTPUT . and friends ========= )
+
 
 : ABS DUP 0< IF NEG THEN ;
 
-: DIGASCII ( dig -- [outputs ascii] )   
+: DIGASCII ( dig -- [outputs ascii] )
     DUP 36 >= IF ( n )
         DROP C' ? EXIT
     THEN DUP 10 >= IF ( n )
@@ -236,7 +237,7 @@
     THEN DUP 0 >= IF ( n )
         '0' + EXIT ( digit in 0-9 )
     THEN  ( n )
-        DROP C' ? 
+        DROP C' ?
     ;
 
 
@@ -253,7 +254,7 @@
     DROP ( -1 [digits] )
 
     ( we're guaranteed at least one digit)
-    BEGIN 
+    BEGIN
         ABS DIGASCII EMIT
     DUP 0< UNTIL ( stop when we hit the -1 )
     DROP  ( drop the -1 )
@@ -278,12 +279,12 @@
      NIP  ( tos:ptr_to_x  ; ptr was never written into x)
      @    ( 42 ; stale data )
   Could cause issues. Since ptr_to_x never had to be written into
-  cell x, it would read old data. NOTE: this would only happen if 
+  cell x, it would read old data. NOTE: this would only happen if
   NIP was a primary
 
 )
 
-( Ends up pointing to TOS? but can't access TOS directly  
+( Ends up pointing to TOS? but can't access TOS directly
   the actual TOS is kept in a register, so might not work correctly
   In practice however, even doing SP@ puts an extra item on the stack
   so it can mostly be accessed normally
@@ -292,7 +293,7 @@
 
 : .S ( prints all items on the stack )
     STACKCOUNT . C' : EMIT SPACE
-    
+
     SP@ ( pointer to last thing we want to print)
 
     DS0 ( ptr_tos ptr_0 )
