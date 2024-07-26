@@ -981,6 +981,106 @@ CJOIN_wd: ? # ( hibyte lobyte -- x )
 
     Z Z NEXT_cd
 
+# AND OR XOR NOT
+# << >> A>>
+# 2* 2/ 1>>
+AND_hd: CJOIN_hd 0 3 "AND"
+AND_wd: ? # (a b -- a_AND_b )
+    # ### Pop NOS(a) into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    alu_A alu_A; Z alu_A; Z Z;          # alu_A := a
+    alu_B alu_B; T T; TOS T; T alu_B ;  # alu_B := TOS(+)
+    TOS TOS; alu_and Z; Z TOS;          # TOS = a&b
+    Z Z NEXT_cd # (return a&b)
+
+OR_hd: AND_hd 0 2 "OR"
+OR_wd: ? # (a b -- a_OR_b )
+    # ### Pop NOS(a) into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    alu_A alu_A; Z alu_A; Z Z;          # alu_A := a
+    alu_B alu_B; T T; TOS T; T alu_B ;  # alu_B := TOS(+)
+    TOS TOS; alu_or Z; Z TOS;           # TOS = a|b
+    Z Z NEXT_cd # (return a&b)
+
+XOR_hd: OR_hd 0 3 "XOR"
+XOR_wd: ? # (a b -- a_XOR_b )
+    # ### Pop NOS(a) into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+
+    alu_A alu_A; Z alu_A; Z Z;          # alu_A := a
+    alu_B alu_B; T T; TOS T; T alu_B ;  # alu_B := TOS(+)
+    TOS TOS; alu_xor Z; Z TOS;          # TOS = a^b
+    Z Z NEXT_cd # (return a&b)
+
+NOT_hd: XOR_hd 0 3 "NOT"
+NOT_wd: ? # (a -- ~a )
+    alu_A alu_A; T T; TOS T; T alu_A ;  # alu_A := TOS(+)
+    alu_B alu_B; i1 alu_B;              # alu_B := FFFF
+    TOS TOS; alu_xor Z; Z TOS;          # TOS = a ^ FFFF
+    Z Z NEXT_cd # (return ~a)
+
+_lshift_hd: NOT_hd 0 2 "<<"
+_lshift_wd: ? # (a b -- a_<<_b )
+    # ### Pop NOS(a) into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+    T T; TOS T;  # T(-) = TOS
+_lshift_ZT_cd: # ( alternate entry: shifts Z(-) >> T(-) )
+    alu_A alu_A; Z alu_A; Z Z;          # alu_A := a
+    alu_B alu_B; T alu_B ;              # alu_B := TOS(+)
+    TOS TOS; alu_ls Z; Z TOS;           # TOS = a<<b
+    Z Z NEXT_cd # (return a<<b)
+
+_2mul_hd: _lshift_hd 0 2 "2*"
+_2mul_wd: ? # ( a -- a<<1 )
+    # we'll call into _lshift, will do Z- (a) << T- (1)
+    TOS Z;  # Z- := a
+    T T; i1 T _lshift_ZT_cd  # T(-) = 1, jump
+
+# LOGICAL (unsigned) RIGHT SHIFT
+U_rshift_hd: _2mul_hd 0 3 "U>>"
+U_rshift_wd: ? # (a b -- a_U>>_b )
+    # ### Pop NOS(a) into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+    T T; TOS T;  # T(-) = TOS
+U_rshift_ZT_cd: # ( alternate entry: shifts Z(-) U>> T(-) )
+    alu_A alu_A; Z alu_A; Z Z;          # alu_A := a
+    alu_B alu_B; T alu_B ;              # alu_B := TOS(+)
+    TOS TOS; alu_rs Z; Z TOS;           # TOS = a>>b
+    Z Z NEXT_cd # (return a>>b)
+
+_1U_rshift_hd: U_rshift_hd 0 4 "1U>>"
+_1U_rshift_wd: ? # ( a -- aU>>1 )
+    # we'll call into U_rshift, will do Z- (a) >> T- (1)
+    TOS Z;  # Z- := a
+    T T; i1 T U_rshift_ZT_cd  # T(-) = 1, jump
+
+# ARITHMETIC RIGHT SHIFT
+_rshift_hd: _1U_rshift_hd 0 2 ">>"
+_rshift_wd: ? # (a b -- a_>>_b )
+    # ### Pop NOS(a) into Z
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+    T T; TOS T;  # T(-) = TOS
+_rshift_ZT_cd: # ( alternate entry: shifts Z(-) >> T(-) )
+    alu_A alu_A; Z alu_A; Z Z;          # alu_A := a
+    alu_B alu_B; T alu_B ;              # alu_B := TOS(+)
+    TOS TOS; alu_ars Z; Z TOS;          # TOS = a>>b
+    Z Z NEXT_cd # (return a<<b)
+
+# NOTE: rounds down if negative
+_2div_hd: _rshift_hd 0 2 "2/"
+_2div_wd: ? # ( a -- a>>1 )
+    # we'll call into _rshift, will do Z- (a) >> T- (1)
+    TOS Z;  # Z- := a
+    T T; i1 T _rshift_ZT_cd  # T(-) = 1, jump
+
 
 _times_exit: # We jump here once X==0
     # NOTE: Z was clobbered before jump
@@ -988,7 +1088,7 @@ _times_exit: # We jump here once X==0
     Z Z NEXT_cd
 
 # ================== TIMES ENTRY POINT
-_times_hd: CJOIN_hd 0 1 "*"
+_times_hd: _2div_hd 0 1 "*"
 _times_wd: ? # (x y - x*y )
 
     alu_B alu_B; n1 alu_B; # alu_B is always 1
