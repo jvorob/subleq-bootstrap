@@ -727,6 +727,11 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 ( ================== INTROSPECTION ====================== )
 
+
+1 VARIABLE DEBUG_STATE
+: YESDEBUG 1 DEBUG_STATE ! ;
+: NODEBUG 0 DEBUG_STATE ! ;
+
 ( Exits two levels up, so calling from interpreter will return to debug )
 : DCONT
     ( return addresses should be DEBUG INTERPRET ?EXECUTE )
@@ -734,12 +739,14 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     R> R> 2DROP
     ;
 : DEBUG
+    DEBUG_STATE @ 0= IF EXIT THEN ( skip debugging if disabled )
+
     STR" \n === ENTERING DEBUGGER ===\n" TELL
     .S
     NEW_INTERPRET
     STR" \n === LEAVING DEBUGGER ===\n" TELL
     ;
-: [DEBUG] DEBUG ; IMMEDIATE
+: [DEBUG] TAILCALL DEBUG ; IMMEDIATE
 
 
 : CFA_MATCHES ( cfa ptr -- 1/0 )
