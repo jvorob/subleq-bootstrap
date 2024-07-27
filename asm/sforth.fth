@@ -122,6 +122,10 @@
     return to our caller )
 : TAILCALL LW_TAILCALL , ; IMMEDIATE
 
+( should function identically to exit, but has a different CFA,
+  should help in disassembly )
+: RETURN TAILCALL EXIT ;
+
 ( ============= VARIABLES ============= )
 
 : VARIABLE ( init_val [TOKEN] - )
@@ -395,6 +399,11 @@
 ( - STATUS?:show DP, LATEST, SP RSP, etc
   - nested comments
 )
+DECIMAL
+: ISPRINTABLE ( c -- 1/0 )
+    ( true if in range 32-126 )
+    DUP  31 >
+    SWAP 126 <= AND ;
 
 ( update C' to work in NORMAL mode as well )
 : C' CHAR
@@ -719,21 +728,67 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 ( ================== INTROSPECTION ====================== )
 
 ( Exits two levels up, so calling from interpreter will return to debug )
-: DEBUGEXIT
+: DCONT
     ( return addresses should be DEBUG INTERPRET ?EXECUTE )
     ( drop first 2, so this returns straight up to debug )
     R> R> 2DROP
     ;
 : DEBUG
     STR" \n === ENTERING DEBUGGER ===\n" TELL
+    .S
     NEW_INTERPRET
     STR" \n === LEAVING DEBUGGER ===\n" TELL
     ;
 : [DEBUG] DEBUG ; IMMEDIATE
 
-: SEE ( IN: TOKEN | -- )
-    ( gets next token, looks up, prints debug info )
-    ;
+
+: CFA_MATCHES ( cfa ptr -- 1/0 )
+    ( returns 1 if ptr points to the name string of cfa )
+    ( strp@ gives len, strp+strp@ points to end of name, str+strp@+1 is cfa )
+    DUP @ 1 ( cfa p p@ 1 )
+    + + ( cfa strend+1 )
+    = ;
+
+ ( used when CFA couldn't find an address. Pushes its own cfa )
+: CFA_ERR [ LW_LIT , WIP @ , ] ;
+: CFA> ( cfa -- wha OR CFA_ERR )
+
+    ( don't even bother checking for words if it's a
+      really small address )
+    DUP ABS 1000 < IF  ( cfa )
+        DROP CFA_ERR RETURN
+    THEN
+
+    DUP 1- ( cfa ptr )
+    32 ( max chars to search backwards )
+
+    BEGIN ( cfa ptr i )
+        >R ( cfa ptr ; stash i )
+
+        2DUP CFA_MATCHES IF
+            ( cfa ptr; ptr points to strlen field )
+            NIP 2- ( skip strlen, flags )
+
+            R> DROP ( get rid of i )
+            RETURN ( returns wha )
+        THEN
+
+        ( if ptr contains anything other than ascii,
+          we should early exit )
+        DUP @ ISPRINTABLE 0= IF ( cfa ptr )
+            R> DROP ( drop i from return stack )
+            2DROP CFA_ERR RETURN  ( drop rest, return err )
+        THEN
+
+
+        1- ( cfa ptr-- )
+        R> 1- ( check I )
+    DUP 0<= UNTIL
+
+    ( cfa ptr i )
+    2DROP DROP
+    CFA_ERR ; ( return err word )
+
 
 HEX
 : -16ALIGN ( ptr -- aligned(ptr) ) FFF0 AND ; ( rounds down )
@@ -747,26 +802,29 @@ DECIMAL
     ( Prints out len words starting at ptr
       pads to 5 digits (might collide if has -1000 ) )
     BEGIN DUP 0> WHILE ( ptr len )
-        OVER @ 6 U.R ( ptr len ; print char)
-        1- SWAP 1+ SWAP ( ptr++ len-- )
-    WEND ( ptr 0 )
-    2DROP ;
-: SDUMP ( ptr len -- )
-    ( Prints out len words starting at ptr
-      pads to 5 digits (might collide if has -1000 ) )
-    BEGIN DUP 0> WHILE ( ptr len )
-        OVER @ 6 .R ( ptr len ; print char)
+        OVER @ 5 U.R ( ptr len ; print char)
         1- SWAP 1+ SWAP ( ptr++ len-- )
     WEND ( ptr 0 )
     2DROP ;
 
+: HEXDUMP_HEADER
+    7 SPACES ( skip corner )
+    0 BEGIN  ( columns at 5 char pitch: )
+        C' x EMIT DUP 4 U.R ( print xN, pad to 5 chars)
+        DUP 7 = IF 5 SPACES THEN ( add gap after 8th col )
+        1+ DUP 15 > UNTIL
+    DROP NL  ;
+
 : HEXDUMP ( ptr len -- )
     BASE @ HEX -ROT ( base ptr len -- ; save base )
+
+    HEXDUMP_HEADER ( print out key along top of table )
+
     OVER + ( base ptr end )
     ( expand region to nearest multiple )
     16ALIGN SWAP -16ALIGN SWAP ( start end )
 
-    BEGIN 2DUP < WHILE
+    BEGIN 2DUP < WHILE ( curr end )
         ( curr end; print out "addr: val val val val..." )
         OVER 5 U.R
         STR" : " TELL ( curr end )
@@ -779,6 +837,90 @@ DECIMAL
     WEND ( base end end )
     2DROP
     BASE ! ( restore base );
+
+
+( first attempt )
+: RSP@ ( -- rsp [at time of caller] )
+    RSP_ @ NEG 1+ ; ( skip our own RSP entry? )
+
+: AB_TO_ALEN ( a b -- a b-a )
+    OVER - ;
+
+: RSDUMP ( -- )
+    STR" RSP: " TELL RSP@ . NL
+    ( dump a wide-ish region around the return stack )
+    RSP@ 2- ( rsp-2 )
+    DUP RS0 ( rsp-2, rs0 )
+    AB_TO_ALEN HEXDUMP ;
+
+: SHOW ( xt -- )
+    ( tries to show a word a little bit? )
+    BASE @ >R HEX ( stash base )
+
+    DUP 4 U.R ( print word )
+    STR" (" TELL
+
+    DUP DO_COLON = IF ( xt )
+        DROP STR" DO_COLON" TELL
+    ELSE DUP LW_LIT = IF ( xt )
+        DROP STR" LIT" TELL
+    ELSE DUP LW_LITSTR = IF ( xt )
+        DROP STR" LITSTR" TELL
+    ELSE DUP LW_BRANCH = IF ( xt )
+        DROP STR" BRANCH" TELL
+    ELSE DUP LW_0BRANCH = IF ( xt )
+        DROP STR" 0BRANCH" TELL
+    ELSE DUP ISPRINTABLE IF ( if is ascii )
+        C' ' EMIT EMIT C' ' EMIT
+    ELSE DUP ABS 100 < IF
+        DROP ( if small constant, just dont print anything )
+    ELSE ( xt )
+        CFA>  DUP CFA_ERR = IF
+            DROP STR" ???" TELL
+        ELSE
+            >WNA TELL
+        THEN
+    THEN THEN THEN THEN THEN THEN THEN
+    STR" )" TELL
+    NL
+    ( xt )
+
+    R> BASE !  ( restore base )
+    ;
+
+: DISASSEMBLE ( addr len -- )
+    BASE @ HEX -ROT
+    BEGIN DUP 0> WHILE ( addr len )
+        OVER 5 U.R  ( print addr: )
+            STR" : " TELL
+        OVER @ SHOW  ( show word at addr )
+        1- SWAP 1+ SWAP ( addr++ len-- )
+    WEND
+    2DROP
+    BASE ! ;
+
+: ISPRIMARY ( xt -- 1/0 )
+    ( returns 1 if xt is a primary word, ie *CFA = CFA+1 )
+    DUP @ 1- = ; ( cfa == *cfa-1 )
+
+: SEE ( xt -- )
+    DUP ABS 128 <  ( if xt small integer )
+    OVER @ ABS 128 < OR ( or cw is small integer )
+    IF
+        STR" (not a word?)\n" TELL ( probably not a word )
+        RETURN
+    THEN
+    ( TODO: integrate with show? so can use lost-words, etc )
+
+    STR" === " TELL
+    DUP SHOW ( print out "word (desc)" )
+
+    DUP ISPRIMARY IF
+        STR" ASM \n" TELL
+    THEN
+
+    DUP 32 DISASSEMBLE
+    ;
 
 ( ========================================= )
 
