@@ -7,6 +7,12 @@
 : (  KEY C' ) =
     [ LW_0BRANCH , -5 , ] ; IMMEDIATE
 ( We have comments now! (not nested though )
+
+( Use this if we need to break to EOF before the v2 interpreter is up)
+: SKIPTO$ C' S EMIT
+    KEY C' $ =
+    [ LW_0BRANCH , -5 , ] ;
+
 ( ======== TODOS:
 - STR",
 - FIX QUIT/RESTART [fix base, RSP, ???, set canaries]
@@ -59,11 +65,14 @@
 
 : 'A' C' A ;
 : 'a' C' a ;
+: 'z' C' z ;
+: 'Z' C' Z ;
 : '0' C' 0 ;
 : '(' C' ( ;
 : ')' C' ) ;
 : '"' C' " ;
 : '\n' 10 ;
+: '\\' 92 ;
 
 
 ( Stack helpers )
@@ -74,28 +83,51 @@
 
 : @! @ ! ;
 
-( ==== Compilation Helpers )
+( ============== SCRIBING WORDS =========== )
 
-( Lookup next word's CFA )
-: ' ( - CFA ; lookup CFA of next token ) TOKEN FIND >CFA ;
-: #, ( n -- ; compiles TOS as a literal number ) LW_LIT , , ;
-( wrinkle: does , mean "write this value into DP"
-           or does it mean "compile this value"
-
-    e.g. ' SOMEWORD ,
-         5 #,
-         FETCHSTR STR,  [ adds LITSTR? ]
-)
-
+( In future we'll add error-handling to FIND so it can error out
+ if not found. However we still want access to the base FIND
+ for cases where we handle the returns-0 )
+: ?FIND ( strp - [cfa or 0]) FIND ;
+: FIND ( strp - cfa [ errors if not found]) FIND ;
+( all subsequent uses of find will use this, which we'll patch to do
+  errorchecking )
 
 : ALLOT DP +! ;
+: #, ( n -- ; compiles TOS as a literal number ) LW_LIT , , ;
+: ' ( - CFA ; lookup CFA of next token ) TOKEN FIND >CFA ;
+( NOTE: later we update ' so it quotes at compile time as well )
 
 : >WNA ( WHA -- strp ) 2+ ;  ( gives str pointer to a word's name )
 
-( Recurse into current word )
-: RECURSE WIP @ >CFA , ; IMMEDIATE
+: FORGET' ( -- ) ( Looks up next token, resets LATEST and dictionary to before it )
+    TOKEN FIND ( wha )
+    DUP DP ! ( wipe out dictionary after wha  )
+    @ LATEST ! ( get previous wha, set as latest )
+    ;
 
-( TAILCALL a word, i.e. that word will return to your caller )
+: PATCH ( cfa_old cfa_new -- )
+    ( overwrites old word to be : {OLD} TAILCALL {NEW} )
+    SWAP ( new old )
+    DO_COLON OVER ! ( new old ; makes old into a secondary )
+    1+ LW_TAILCALL OVER ! ( new old+1 ; writes old[1]=tailcall )
+    1+ ( new old+2 )
+    ! ; ( -- ; writes old[2] = new )
+
+( ============== COMPILE WORDS =========== )
+
+( Define postpone, useful for making compiling words that
+  use other compiling words at macroexpand time
+  e.g. : WHILE [POSTPONE] IF ;
+)
+: [POSTPONE] ( <reads immediate word> -- <compiles it for later> )
+    ' , ; IMMEDIATE
+
+: RECURSE ( -- [compiles word being currently defined] )
+    WIP @ >CFA , ; IMMEDIATE
+
+( TAILCALL a word, i.e. the next word will not return to us, it will
+    return to our caller )
 : TAILCALL LW_TAILCALL , ; IMMEDIATE
 
 ( ============= VARIABLES ============= )
@@ -186,7 +218,7 @@
   _ test 0BRANCH to_wend loop BRANCH to_test
 )
 ( NOTE: while compiles exactly like if, but need to escape it)
-: WHILE [ ' IF , ] ; IMMEDIATE
+: WHILE [POSTPONE] IF ; IMMEDIATE
 
 ( compiles a branch back to BEGIN,
   fixes up WHILE's offset to point after itself )
@@ -311,22 +343,11 @@
 
 ( ========== Fancier quoting/inlining ========= )
 
-( SKIP THIS FOR NOW
 ( update quote ' to be flexible, working in normal mode or compile mode)
 : ' ( <finds next word> -- <pushes / compiles CFA > )
     ' ( lookup using old func )
     STATE @ IF #, THEN
     ; IMMEDIATE
-
-( Define postpone, useful for making compiling words that
-  use other compiling words at macroexpand time )
-: [POSTPONE] ( <reads immediate word> -- <compiles it for later> )
-    ' , ;
-
-
-: CONSTEXPR;
-    [ ' STATE , ]
-    [ ' @ , ]
 
 ( Experimental? )
 ( TWO SCHOOLS OF THOUGHT
@@ -351,6 +372,29 @@
   - nested comments
 )
 
+( update C' to work in NORMAL mode as well )
+: C' CHAR
+    STATE @ IF #, THEN ; IMMEDIATE
+
+: ASCIIUPPER ( c -- uppercase(c) )
+    DUP 'a' >=      ( c is>a )
+    OVER 'z' <= AND ( c islowalph )
+    IF  ( if islowercase, shift up by 'A'-'a')
+        [ 'A' 'a' - #, ] +
+    THEN ;
+
+: UPPER ( strp -- strp [ uppercases the string] )
+    DUP @ ( str len )
+    OVER 1+ ( strp len strp+1 )
+    BEGIN OVER 0> WHILE ( loop while len>0 )
+        ( ; uppercase current )
+        DUP @ ASCIIUPPER ( strp len pcurr upper(c) )
+        OVER ! ( strp len pcurr ; writes char )
+        1+ SWAP 1- SWAP ( strp len-1 p+1 )
+    WEND ( strp len p_end )
+    2DROP ;
+
+
 ( TODO
 : MEMWRITE" ( pointer -- [reads string into memory at specified location] )
 
@@ -369,6 +413,17 @@
 
     ( strp len char )
     BEGIN DUP '"' <> WHILE ( loop until we hit a " )
+
+        ( == check for escape sequences )
+        DUP '\\' = IF ( strp len '\' )
+            ( got \, fetch next char and check escapes )
+            DROP KEY
+            DUP C' n = IF DROP '\n'  ( strp len '\n' )
+            ELSE
+                ( strp len escchar )
+                ( just leave the escaped char to be enclose )
+            THEN
+        THEN ( strp len nextchar )
         ,  ( strp len ; enclose char)
         1+ ( strp len+1 )
         KEY ( get next key )
@@ -387,12 +442,10 @@
     ; IMMEDIATE
 
 
-
 ( ========== NEW OUTER INTERP, restart ========= )
 
 : ?EXECUTE ( wha -- ; compiles or executes, based on STATE and ?IMMED)
     STATE @ IF ( we're in compile mode )
-
         ( it's immediate, execute it )
         DUP ?IMMED IF
              >CFA EXECUTE
@@ -401,6 +454,7 @@
     ELSE ( normal mode )
         >CFA EXECUTE
     THEN ;
+
 
 : ?DUP  ( n -- [ n n OR 0 ] )
     ( duplicates if nonzero, useful for ?DUP IF )
@@ -417,7 +471,7 @@
 
 ( === FILE LOADING MODE: === )
 : START_LOADING_FILE ( switches into bulkload mode )
-    NL STR" Loading until END_OF_FILE" TELL NL
+    NL STR" Loading until END_OF_FILE\n" TELL
     1 BULKLOAD ! ;
 : END_OF_FILE ( switches out of bulkload mode)
     STR" Finished Loading" TELL NL
@@ -481,7 +535,9 @@
     0 BULKLOAD ! ( ; interactive )
     10 BASE !    ( ; decimal )
 
-    INTERPETER @ EXECUTE
+    ( INTERPETER @ EXECUTE )
+    INTERPRET ( calls old INTERPRET, but we'll patch over it )
+
     STR" ERR: Returned from interpreter" TELL
     ;
 
@@ -491,21 +547,21 @@
 
     DECIMAL ( return to known state )
 
-    STATE @ IF
-        ( TODO: clear out WIP word )
-        0 WIP !
+    STATE @ IF    ( if in compile mode, clean up WIP word )
+        WIP DP @!   ( reset DP to start of WIP word )
+        0 WIP !     ( discard WIP word )
     THEN
 
     0 STATE ! ( switch out of compile mode )
 
     ( If we were bulk-loading a file, errors should-early exit the whole thing)
     BULKLOAD @ IF
-        STR" ERROR LOADING FILE " TELL NL
+        STR" ERROR LOADING FILE\n" TELL
         STR" - Last word was: " TELL
             LATEST @ >WNA TELL NL ( print last word )
         STR" - Skipped rest of file (" TELL
             SKIP_TO_EOF
-            . STR" lines)" TELL NL
+            . STR" lines)\n" TELL
         0 BULKLOAD ! ( switch back to interactive mode )
     ELSE SKIP_TO_NL
 
@@ -526,9 +582,9 @@
     BULKLOAD @ 0= IF PROMPT THEN
 
     BEGIN
-    TOKEN
+    TOKEN UPPER
 
-    DUP FIND ( tok wha|0 )
+    DUP ?FIND ( tok wha|0 ; we use the checked find here, since we handle the 0)
     ?DUP IF ( ; found word )
         ( tok wha )
         SWAP DROP ( wha )
@@ -541,12 +597,10 @@
 
     ELSE  ( tok )
         DUP NUMBER ( tok 0 | tok n 1 )
-        IF
-            ( tok n )
+        IF ( tok n )
             NIP ( n )
             STATE @ IF #,
             THEN ( if normal mode, leave n on top of stack )
-
 
         ELSE ( either \n or invalid token )
             ( tok -- )
@@ -573,14 +627,65 @@
     REPEAT
     ;
 
-( Patch in new interpreter, switch to bulk load mode )
-: TEMP STR" Upgrading interpreter to v0.2" TELL NL ; TEMP
-( FORGET TEMP )
-' NEW_INTERPRET INTERPETER ! ( patch in interp )
-0 BASE ! ( clear base so we hit the START logic )
-RESTART START_LOADING_FILE ( restart into new interp, switch to load mode )
+
+( Now we have a better interpreter, let's patch the old interpreter )
+( NOTE: this needs to happen all at once, so wrap in a temp upgrade word )
+: UPGRADE
+    ( Patch in new interpreter, switch to bulk load mode )
+    STR" Upgrading interpreter to v0.2\n" TELL
+
+    ( ' NEW_INTERPRET INTERPETER ! ( patch in interp ) )
+    ( Overwrite interpret with our new one )
+    ' INTERPRET ' NEW_INTERPRET PATCH
+
+    0 BASE ! ( clear base so we hit the START logic )
+    RESTART  ( restart into new interp, switch to load mode )
+    ;
+( Upgrade to the new interpreter, then immediately switch to BULKLOAD
+  mode so we minimize unnecessary prompts )
+UPGRADE START_LOADING_FILE
+FORGET' UPGRADE  ( we don't actually want to keep upgrade )
+
+( ================== NEW INTERPRETER EXISTS! ====================== )
+( fix up old funcs to take advantage of error handling )
+
+: STR" ( redefine, if not in compile mode, error out )
+    STATE @ 0= IF
+        STR" ERROR: STR\" only valid in compile mode\n" TELL
+        HANDLE_ERR ( error, restart )
+    THEN
+    [POSTPONE] STR" ( call into old STR" )
+    ; IMMEDIATE
+
+( we can finally make FIND and friends take advantage of error checking )
+: _CHECKED_FIND ( strp - cfa [ errors if not found ] )
+    DUP ?FIND ?DUP IF
+        ( strp cfa )
+        NIP EXIT ( -- cfa )
+    THEN ( if not found: )
+    ( strp )
+    STR" ERROR IN FIND: " TELL
+        TELL  ( print offending token )
+        STR" ?\n" TELL
+    HANDLE_ERR
+    ;
+
+( patch FIND to use _CHEKCED_FIND )
+' FIND ' _CHECKED_FIND PATCH
+
+( Upgrade : to error out if we call it in compile mode )
+: : ( does normal : things )
+    STATE @ IF
+        STR" ERROR: : called while already in compile mode\n" TELL
+        HANDLE_ERR ( restart )
+    THEN :  ( call into old colon )
+    ; IMMEDIATE
 
 ( ================== INTROSPECTION ====================== )
+
+: SEE ( IN: TOKEN | -- )
+    ( gets next token, looks up, prints debug info )
+    ;
 
 
 ( ========================================= )
