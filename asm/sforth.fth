@@ -725,7 +725,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     THEN [ ' : , ] ( call into old colon )
     ; IMMEDIATE
 
-( ================== INTROSPECTION ====================== )
+( ================== DEBUGGER  ====================== )
 
 
 1 VARIABLE DEBUG_STATE
@@ -747,6 +747,18 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     STR" \n === LEAVING DEBUGGER ===\n" TELL
     ;
 : [DEBUG] TAILCALL DEBUG ; IMMEDIATE
+
+
+( ================== INTROSPECTION/DISASSEMBLY  ====================== )
+
+
+: ISWHA ( ptr -- )
+    ( returns true if ptr could be a word address, i.e. flags is reasonable, has string )
+    ( todo: check if cfa holds addr+1 (asm) or DO_COLON, DO_VAR, DO_CONST? won't
+      work if add more interpreters though.
+     check if link is also a wha? won't work recursively though, or might be 0 )
+    ( rule out small addresses )
+    STR" ISWHA NOT IMPL" TELL HANDLE_ERR ;
 
 
 : CFA_MATCHES ( cfa ptr -- 1/0 )
@@ -846,19 +858,6 @@ DECIMAL
     BASE ! ( restore base );
 
 
-( first attempt )
-: RSP@ ( -- rsp [at time of caller] )
-    RSP_ @ NEG 1+ ; ( skip our own RSP entry? )
-
-: AB_TO_ALEN ( a b -- a b-a )
-    OVER - ;
-
-: RSDUMP ( -- )
-    STR" RSP: " TELL RSP@ . NL
-    ( dump a wide-ish region around the return stack )
-    RSP@ 2- ( rsp-2 )
-    DUP RS0 ( rsp-2, rs0 )
-    AB_TO_ALEN HEXDUMP ;
 
 : SHOW ( xt -- )
     ( tries to show a word a little bit? )
@@ -889,7 +888,6 @@ DECIMAL
         THEN
     THEN THEN THEN THEN THEN THEN THEN
     STR" )" TELL
-    NL
     ( xt )
 
     R> BASE !  ( restore base )
@@ -900,7 +898,7 @@ DECIMAL
     BEGIN DUP 0> WHILE ( addr len )
         OVER 5 U.R  ( print addr: )
             STR" : " TELL
-        OVER @ SHOW  ( show word at addr )
+        OVER @ SHOW NL ( show word at addr )
         1- SWAP 1+ SWAP ( addr++ len-- )
     WEND
     2DROP
@@ -920,7 +918,7 @@ DECIMAL
     ( TODO: integrate with show? so can use lost-words, etc )
 
     STR" === " TELL
-    DUP SHOW ( print out "word (desc)" )
+    DUP SHOW NL ( print out "word (desc)" )
 
     DUP ISPRIMARY IF
         STR" ASM \n" TELL
@@ -928,6 +926,107 @@ DECIMAL
 
     DUP 32 DISASSEMBLE
     ;
+
+( ================== RETURN STACK INTROSPECTION/DISASSEMBLY  ====================== )
+
+( first attempt )
+: RSP@ ( -- rsp [at time of caller] )
+    RSP_ @ NEG 1+ ; ( skip our own RSP entry? )
+
+
+: BETWEEN ( x a b -- 1/0 )
+    ( return 1 if a < x < b )
+    -ROT ( b x a )
+    OVER < ( b x a<x )
+    -ROT ( a<x b x )
+    > ( a<x b>x )
+    AND ;
+
+( local used in WRA> )
+0 VARIABLE TESTRA
+
+: ISRAINWORD ( laterwha currwha -- 1/0 ; [ra in TESTRA] )
+    ( returns true if RA could be part of currwha word
+      laterwha > currwha )
+      >CFA SWAP ( currcfa laterwha )
+      TESTRA @ -ROT ( ra currcfa laterwha )
+      BETWEEN ;
+
+( error sentinel for WRA> )
+: WRA_ERR ( -- WHA:WRA_ERR ) [ WIP @ #, ] ; ( pushes own wha )
+
+: WRA> ( ra -- wha [ WRA_ERR if not found )
+    ( Given a return addr, find the word that it returns into )
+    TESTRA ! ( stash RA )
+    DP @ LATEST @ ( end_of_dict currwha )
+    BEGIN DUP WHILE ( while currwha is not null )
+        ( prevwha currwha )
+        2DUP ISRAINWORD IF ( if this is it )
+            NIP RETURN ( return currwha )
+        THEN
+
+        ( prev currwha ; else, move on to next word header )
+        NIP DUP @ ( currwha nextwha )
+        ( == prevwha currwha )
+    WEND ( wha wha )
+    2DROP WRA_ERR ;
+
+: AB_TO_ALEN ( a b -- a b-a )
+    OVER - ;
+
+: RSDUMP ( -- )
+    STR" RSP: " TELL RSP@ . NL
+    ( dump a wide-ish region around the return stack )
+    RSP@ 2- ( rsp-2 )
+    DUP RS0 ( rsp-2, rs0 )
+    AB_TO_ALEN HEXDUMP ;
+
+( ==== RSHOW: format return addresses informatively )
+: RSHOW_1 ( ra wha - ra )
+    ( prints "(WORD)+OFFSET", handles negative, handles WRA_ERR )
+    '(' EMIT DUP >WNA TELL ')' EMIT  ( ; prints "(WORD)")
+    DUP WRA_ERR = IF ( if WRA_ERR, early exit )
+        2DROP RETURN
+    THEN
+    ( ra wha ; calc and print offset: ra-start_of_word )
+    OVER SWAP  ( ra ra wha ; stash a copy )
+    >DFA -
+    DUP 0>= IF C' + EMIT THEN ( add + sign? )
+    4 U.R ; ( print out )
+
+: RSHOW_2 ( ra -- ra )
+    ( prints instruction at return address "= [ xxxx (WORD) ]" )
+    STR" = [" TELL
+    DUP @ SHOW  ( print using show )
+    C' ] EMIT ;
+
+: RSHOW ( ra -- )
+    ( prints "ra: ", looks up WRA>, does RSHOW1 to print name and offset,
+      then rshow_2 to print instruction at RA contents )
+    DUP 4 U.R ( print the RA )
+    C' : EMIT SPACE
+    DUP WRA> RSHOW_1 ( ra )
+    RSHOW_2 ( ra )
+    DROP ;
+
+
+: .RS ( -- prints return stack)
+    BASE @ HEX
+    RSP@ 1+ ( rsp ; ignore own RA )
+    STR" === RSP: " TELL DUP U. NL
+    BEGIN DUP RS0 <= WHILE ( loop until rsp > RS0 )
+        DUP 3 U.R ( print out current rsp )
+            ')' EMIT SPACE
+        DUP @ RSHOW ( fetch ra, format with rshow )
+        NL
+        1+ WEND ( rsp++ )
+    DROP BASE ! ;
+
+
+( TEMP TEST FUNCS )
+: T2 RSP@ DEBUG @ ;
+: T1 1 DUP T2 -ROT 2DROP ;
+: WA' TOKEN UPPER FIND ;
 
 ( ========================================= )
 
