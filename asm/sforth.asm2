@@ -203,8 +203,12 @@ RSP_: 0 #RSP(-) points to next free space
 strcmp:
 # We have two strings, the lengths matched
 # (strings with lengths at strp[0])
-# P1(-), P2(-) point to their start (length byte)
-# Return value in X: 1 if ==, else 0
+# ARGS:
+#   P1(-), P2(-) point to their start (length byte)
+# RETURNS:
+#   X(+): 1 if ==, else 0
+# CLOBBERS:
+#   X Y V W
 #
 # Y- will hold strlen 1
 # V- will hold strlen 2
@@ -1965,38 +1969,93 @@ _semicolon_wd: do_colon
     WIP_wd _at_wd LATEST_wd _bang_wd # Link WIP into latest
     LIT_wd 0 WIP_wd _bang_wd # Clear WIP
     LIT_wd 0 STATE_wd _bang_wd # exit compile mode
+
+    # (DEBUG: Print out words as they're compiled)
+    #LATEST_wd _at_wd _2plus_wd TELL_wd NL_wd
+
     EXIT_wd
 
 
-FIND_hd: _semicolon_hd 0 4 "FIND"
-FIND_wd: do_colon # (strp - [dict_header or 0])
-
+# ( OLD IMPLEMENTATION: SUPESEDED BY ASM FIND_wd )
+FIND_SECONDARY_wd: do_colon # (strp - [dict_header or 0])
     # Start searching at latest header
-    LATEST_wd _at_wd
-    SWAP_wd
+    LATEST_wd _at_wd SWAP_wd # ( hdrp strp )
 
     # loop (hdrp strp):
         OVER_wd _0BRANCH_wd  0E # if curr hdr is nullptr, jump to exit (+dec14)
 
         # ==== COMPARE TGT TO CURRENT HEADER get len, compare
         # (hdr str)
-
         #prepare 2 string pointers
         OVER_wd  # ( hdr str hdr )
         _2plus_wd OVER_wd #(hdr str hd_str str)
 
         # compare strings
-        STR_eq_wd _0BRANCH_wd   3
-            #If strings equal: (hdr str), return header
-            DROP_wd EXIT_wd
+        STR_eq_wd _0BRANCH_wd   3 # If strings equal
+            DROP_wd EXIT_wd #( hdr str), return header
         # Else, (hdr str), go to next entry
-        SWAP_wd _at_wd SWAP_wd
+        SWAP_wd _at_wd SWAP_wd # ( nexthdr str)
 
         BRANCH_wd 0FFF1 #jmp loop (-dec15, -F)
     #end loop
 
     # (0 strp) reached nullptr, return 0
     DROP_wd EXIT_wd
+
+# =====
+FIND_cd_nomatch: # ( we chased pointers until we hit 0, error out )
+    TOS TOS;
+    Z Z NEXT_cd
+
+
+#FIND_ASM_hd: _semicolon_hd 0 4 "FIND"
+FIND_hd: _semicolon_hd 0 4 "FIND"
+FIND_wd: ? # ( strp - [ dict header or 0 ] )
+
+    # === FUN COMPARISON: Call into FIND_SECONDARY instead for a speed comparison
+    # CWA CWA ?+1 #leave room for a constant
+    # FIND_SECONDARY_wd # constant, not executed
+    # ?+FFFE Z; Z CWA ; # set CWA(+) to val of constant
+    # Z Z RUN_cd # EXECUTE IT
+
+
+
+    P1 P1; TOS P1; # target strp in P1(-)
+    P2 P2; LATEST_val P2; # curr word strp in P2(-), start at LATEST
+
+    # First time, don't need to advance P2
+    Z Z ?+18 # skip over 8 triples, 0x18
+FIND_cd_loop:
+    # go to previous word header
+    # P2 points to link field
+
+    # P2(-) = WHA
+    ?+5 ?+4; P2 ?+1; 0 Z; # GADGET:FETCH Z -= *(-P2)
+    # Z(-) = LinkedWHA
+    T T; Z T; P2 P2; T P2; Z Z; # copy Z(-) to P2(-)
+
+    # P2(-) is now next WHA
+    # if P2 is 0, we failed to find a match and need to return
+    Z P2 ?+3 # if P2 <= 0, nextif
+    Z Z  ?+3 # else P2 >0, skip
+    P2 Z FIND_cd_nomatch # nextif P2>=0 (==0) we failed to find a match, exit
+
+    # P2 is a valid word header, let's compare strings
+
+    # we want to compare the string field, which is at WHA+2
+    # Since we're negative, we want P2(-) -2
+    i2 P2;  # P2 -= 2
+    R R; ?+5 R; Z Z strcmp   ? #JSR strcmp(strp in P1-, strp in P2-)
+    n2 P2;  # put P2 back to WHA
+
+    # result in X, 1 means match
+    Z X FIND_cd_loop # if X == 0, no match, keep searching
+                      # else X=1, we found a match!
+
+    # P2 points to WHA of matching word
+    # return P2
+    TOS TOS; P2 TOS; # TOS(+) = WHA in P2(-)
+    Z Z NEXT_cd
 
 # ================================================================
 #
@@ -2368,14 +2427,14 @@ TEST_bd:
     #TEST_BRANCH_wd
 
     #TEST_TOKEN_wd
-    #TEST_FIND_wd
+    TEST_FIND_wd
 
     #TEST_NUMBER_wd
     #TEST_STRCPY_wd
     #TEST_CREATE_wd
 
     #TEST_EXECUTE_wd
-    TEST_TAILCALL_wd
+    #TEST_TAILCALL_wd
 
     #INTERPRET_wd
 
