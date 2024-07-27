@@ -1,12 +1,11 @@
 : IMMEDIATE 1 LATEST @ 1+ ! ;
 : [ 0 STATE ! ; IMMEDIATE
 : ] 1 STATE ! ;
-
 : CHAR TOKEN 1+ @ ;
 : C' LW_LIT , CHAR , ; IMMEDIATE
 : (  KEY C' ) =
     [ LW_0BRANCH , -5 , ] ; IMMEDIATE
-( We have comments now! (not nested though )
+( We have comments now! not nested though )
 
 ( Use this if we need to break to EOF before the v2 interpreter is up)
 : SKIPTO$ C' S EMIT
@@ -14,34 +13,19 @@
     [ LW_0BRANCH , -5 , ] ;
 
 ( ======== TODOS:
-- STR",
-- FIX QUIT/RESTART [fix base, RSP, ???, set canaries]
-- Write ERRCHECK
+- Finish ?STACK
     - Check stack underflow, rstack underflow
     - Check canaries
     - Error out? [reset data stack]
-- Write prompt?
-    - switch token to check for \n?
-    - would need to detect compile mode? [no prompt while compiling]
-    - would need some way to disable it while loading
-    - EN_PROMPT NO_PROMPT ?
-    - Also: error recovery changes: if error during NO_PROMPT, halt
-    - global error handling?
-        - e.g. IMMED_ONLY, that prints an error and calls int ERR? QUIT?
-- Write UPPER? something that's uppercasing insensitive
-- Write new interpreter:
-    - Prompt (if not compiling, if not disabled]
-    - Error check after word, error messages, QUIT/RESTART
-    - newline handling?
-- Startup text [ "x words loaded, y cells free" ]
+- More error handling
+    - COMPILE_ONLY flag?
 - write DUMP
     - probably needs U.R
 
  Less urgent
- - [old] [new] PATCH_WORD
  - Add forth version constants?
  - fix unsigned . [e.g. FFFF U.]
- - VALUE / TO VALUE?
+ - VALUE, TO VALUE?
  - fancy loops [access to I?]
 
  Long-term goals:
@@ -81,7 +65,10 @@
 : HEX 16 BASE ! ;
 : DECIMAL 10 BASE ! ;
 
-: @! @ ! ;
+( : @! @ ! ; )
+( UHHHH THIS WORKS THE OPPOSITE OF HOW I'D WANT IT TO.
+  Disable this for now .
+  I want SRC @ TGT !, but this does TGT SRC @ ! )
 
 ( ============== SCRIBING WORDS =========== )
 
@@ -100,6 +87,10 @@
 
 : >WNA ( WHA -- strp ) 2+ ;  ( gives str pointer to a word's name )
 
+( we'll use this to make sure we don't accidentally forget everything )
+: DICT_START [ TOKEN IMMEDIATE FIND #, ] ;
+( points to start of non-core dict )
+
 : FORGET' ( -- ) ( Looks up next token, resets LATEST and dictionary to before it )
     TOKEN FIND ( wha )
     DUP DP ! ( wipe out dictionary after wha  )
@@ -113,6 +104,7 @@
     1+ LW_TAILCALL OVER ! ( new old+1 ; writes old[1]=tailcall )
     1+ ( new old+2 )
     ! ; ( -- ; writes old[2] = new )
+
 
 ( ============== COMPILE WORDS =========== )
 
@@ -137,7 +129,6 @@
     DP @         ( init_val hdr -- store current addr )
     TOKEN CREATE ( create header, links into latest )
     LATEST !     ( init_val -- : link word into latest)
-
     DO_VAR ,     ( set codefield as DO_VAR )
     ,            ( enclose initial value )
 ;
@@ -147,10 +138,10 @@
     DP @         ( init_val hdr -- store current addr )
     TOKEN CREATE ( create header, links into latest )
     LATEST !     ( init_val -- : link word into latest)
-
     DO_CONST ,   ( set codefield )
     ,            ( enclose initial value )
 ;
+
 
 ( ========== CONTROL FLOW ========= )
 
@@ -262,6 +253,12 @@
 ( ========== OUTPUT . and friends ========= )
 
 
+
+: SPACES ( n -- [ outputs n spaces, min 0 ] )
+    BEGIN DUP 0> WHILE SPACE 1-
+    WEND ( n )
+    DROP ;
+
 : ABS DUP 0< IF NEG THEN ;
 
 : DIGASCII ( dig -- [outputs ascii] )
@@ -276,24 +273,53 @@
     ;
 
 
-: U.  ( number -- ; prints out unsigned )
+: CSTACKSHOW C' : EMIT STACKCOUNT DIGASCII EMIT SPACE  ;
+: U.R  ( number width -- ; prints out unsigned,
+    rpadded to width )
     ( we're going to push the digits onto the stack, LSD on bottom )
 
+    SWAP ( width is going to be under all this mess )
+
+
     -1 SWAP  ( push -1 as sentinel )
-    BEGIN ( -1 [..digits] rest )
+    BEGIN ( width -1 [..digits] rest )
         BASE @ /MOD ( -1 [digits] rest digit )
+        ( In the absence of an unsigned divmod, manually unsign the digits? )
+        ( e.g. in hex, remainder of -1 is )
+        DUP 0< IF BASE @ + THEN
+
+
+        ABS ( TODO: BUG we need an unsigned divmod, but for now we make do )
         SWAP        ( -1 [digits] digit rest )
     DUP 0= UNTIL ( if rest = 0, break )
 
-         ( -1 [digits] 0)
-    DROP ( -1 [digits] )
+    ( width -1 [digits] 0 )
+    ( leave 0 on stack, we'll use it as num chars printed )
 
     ( we're guaranteed at least one digit)
-    BEGIN
+    BEGIN ( width -1 [digits] cnt )
+        1+ SWAP ( ... [digits] cnt nextdigit )
         ABS DIGASCII EMIT
-    DUP 0< UNTIL ( stop when we hit the -1 )
-    DROP  ( drop the -1 )
-    SPACE ;
+    ( width -1 [digits] cnt )
+    OVER 0< UNTIL ( stop when we hit the -1 )
+    NIP  ( width cnt ; drop the -1 )
+
+    ( Now, let's pad: prints width-count spaces )
+    - SPACES
+    ;
+
+: .R ( number width -- prints signed, padded to width )
+    OVER 0< IF ( if number negative )
+        C' - EMIT ( print '-' )
+        1-       ( decrement width (we have '-') )
+        SWAP NEG ( negate number )
+        SWAP ( number width )
+    THEN U.R ;
+
+: U. ( number -- prints out unsigned, then a space )
+    0 U.R ( prints unpadded )
+    SPACE ; ( add a space )
+
 
 : . ( number )
     DUP 0< IF
@@ -363,8 +389,6 @@
             : A2 [CHAR] A ;
         A1 is a compile word that compiles a literal A, [CHAR] is used textually
         A2 is a normal word that pushes A, [CHAR] is used to precompile
-)
-
 )
 
 ( ========== MISC ========= )
@@ -442,6 +466,15 @@
     ; IMMEDIATE
 
 
+( Patch CREATE to always uppercase its tokens )
+: _NEW_CREATE ( str -- )
+    ( same as original create just uppercase the tokens first)
+    LATEST @ , ( strp -- ;link to prev word )
+    0 ,        ( enclose flags )
+    UPPER STR, ( uppercase token and enclose in dict )
+    ;
+ ' CREATE ' _NEW_CREATE PATCH
+
 ( ========== NEW OUTER INTERP, restart ========= )
 
 : ?EXECUTE ( wha -- ; compiles or executes, based on STATE and ?IMMED)
@@ -470,9 +503,11 @@
                       disables OK and PROMPT on newline )
 
 ( === FILE LOADING MODE: === )
+
 : START_LOADING_FILE ( switches into bulkload mode )
     NL STR" Loading until END_OF_FILE\n" TELL
     1 BULKLOAD ! ;
+
 : END_OF_FILE ( switches out of bulkload mode)
     STR" Finished Loading" TELL NL
     0 BULKLOAD ! ;
@@ -542,15 +577,16 @@
     ;
 
 : HANDLE_ERR
-    ( we had a stack underflow or undefined word. If in compile mode,
-     reset WIP word)
-
+    ( we had a stack underflow, undefined word, etc.
+      - discard rest of input (rest of line, or rest of file if BULKLOAD)
+      clear any words mid-compilation, then restart )
     DECIMAL ( return to known state )
 
     STATE @ IF    ( if in compile mode, clean up WIP word )
-        WIP DP @!   ( reset DP to start of WIP word )
-        0 WIP !     ( discard WIP word )
-    THEN
+        WIP @ DICT_START > IF ( double check we're not wiping out the whole dict )
+            WIP @ DP !   ( reset DP to start of WIP word )
+    THEN THEN
+    0 WIP !     ( discard WIP word, if any )
 
     0 STATE ! ( switch out of compile mode )
 
@@ -592,8 +628,7 @@
         ( if we're in compile mode and word is not immediate, compile it )
         ?EXECUTE
 
-        ?STACK
-        ( ?STACK - check stacks: if error, discard input, reset )
+        ?STACK ( check stack for error. If found, discard input and error out )
 
     ELSE  ( tok )
         DUP NUMBER ( tok 0 | tok n 1 )
@@ -678,15 +713,72 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     STATE @ IF
         STR" ERROR: : called while already in compile mode\n" TELL
         HANDLE_ERR ( restart )
-    THEN :  ( call into old colon )
+    THEN [ ' : , ] ( call into old colon )
     ; IMMEDIATE
 
 ( ================== INTROSPECTION ====================== )
+
+( Exits two levels up, so calling from interpreter will return to debug )
+: DEBUGEXIT
+    ( return addresses should be DEBUG INTERPRET ?EXECUTE )
+    ( drop first 2, so this returns straight up to debug )
+    R> R> 2DROP
+    ;
+: DEBUG
+    STR" \n === ENTERING DEBUGGER ===\n" TELL
+    NEW_INTERPRET
+    STR" \n === LEAVING DEBUGGER ===\n" TELL
+    ;
+: [DEBUG] DEBUG ; IMMEDIATE
 
 : SEE ( IN: TOKEN | -- )
     ( gets next token, looks up, prints debug info )
     ;
 
+HEX
+: -16ALIGN ( ptr -- aligned(ptr) ) FFF0 AND ; ( rounds down )
+: 16ALIGN  ( ptr -- alignedptr ) 15 + -16ALIGN ; ( rounds up )
+: -8ALIGN ( ptr -- a(ptr) ) FFF8 AND ;
+: 8ALIGN  ( ptr -- a(ptr) ) 7 + -8ALIGN ;
+DECIMAL
+
+( basic: just prints them out )
+: DUMP ( ptr len -- )
+    ( Prints out len words starting at ptr
+      pads to 5 digits (might collide if has -1000 ) )
+    BEGIN DUP 0> WHILE ( ptr len )
+        OVER @ 6 U.R ( ptr len ; print char)
+        1- SWAP 1+ SWAP ( ptr++ len-- )
+    WEND ( ptr 0 )
+    2DROP ;
+: SDUMP ( ptr len -- )
+    ( Prints out len words starting at ptr
+      pads to 5 digits (might collide if has -1000 ) )
+    BEGIN DUP 0> WHILE ( ptr len )
+        OVER @ 6 .R ( ptr len ; print char)
+        1- SWAP 1+ SWAP ( ptr++ len-- )
+    WEND ( ptr 0 )
+    2DROP ;
+
+: HEXDUMP ( ptr len -- )
+    BASE @ HEX -ROT ( base ptr len -- ; save base )
+    OVER + ( base ptr end )
+    ( expand region to nearest multiple )
+    16ALIGN SWAP -16ALIGN SWAP ( start end )
+
+    BEGIN 2DUP < WHILE
+        ( curr end; print out "addr: val val val val..." )
+        OVER 5 U.R
+        STR" : " TELL ( curr end )
+        OVER 8 DUMP    ( ; dump first 8 words )
+        STR"  === " TELL
+        OVER 8 + 8     ( curr end curr+8 8 ; dump next 8 words )
+            DUMP
+            NL
+        SWAP 16 + SWAP ( curr+16 end )
+    WEND ( base end end )
+    2DROP
+    BASE ! ( restore base );
 
 ( ========================================= )
 
