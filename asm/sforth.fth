@@ -750,7 +750,80 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 
 ( ================== INTROSPECTION/DISASSEMBLY  ====================== )
+HEX
 
+: BETWEEN ( x a b -- 1/0 )
+    ( return 1 if a < x < b )
+    -ROT ( b x a )
+    OVER < ( b x a<x )
+    -ROT ( a<x b x )
+    > ( a<x b>x )
+    AND ;
+
+( some regions of memory are memory-mapped control units, and even
+  reading them can break stuff. Lets just say 0x01 to 0x04 are unsafe  )
+: ISUNSAFEPTR ( ptr -- 1/0 )
+    DUP 0 > SWAP 40 < AND ;
+
+( some things we shouldn't even bother dissassembling, since all possible words
+  are greater than this. Also ignore small negative integers )
+( - stacks and stack pointers start at 0x200
+  - forth inner interpreter starts at 0x800, main forth words soon after )
+: BELOWALLWORDS ( ptr -- 1/0 )
+    DUP -FF >= SWAP 200 <= AND ;
+
+: -16ALIGN ( ptr -- aligned(ptr) ) FFF0 AND ; ( rounds down )
+: 16ALIGN  ( ptr -- alignedptr ) 15 + -16ALIGN ; ( rounds up )
+: -8ALIGN ( ptr -- a(ptr) ) FFF8 AND ;
+: 8ALIGN  ( ptr -- a(ptr) ) 7 + -8ALIGN ;
+DECIMAL
+
+( basic: just prints them out )
+: DUMP ( ptr len -- )
+    ( Prints out len words starting at ptr
+      pads to 5 digits (might collide if has -1000 ) )
+    BEGIN DUP 0> WHILE ( ptr len )
+        OVER ISUNSAFEPTR IF
+            C' ? EMIT 4 SPACES
+        ELSE
+            OVER @ 5 U.R ( ptr len ; print char)
+        THEN
+        1- SWAP 1+ SWAP ( ptr++ len-- )
+    WEND ( ptr 0 )
+    2DROP ;
+
+: HEXDUMP_HEADER
+    7 SPACES ( skip corner )
+    0 BEGIN  ( columns at 5 char pitch: )
+        C' x EMIT DUP 4 U.R ( print xN, pad to 5 chars)
+        DUP 7 = IF 5 SPACES THEN ( add gap after 8th col )
+        1+ DUP 15 > UNTIL
+    DROP NL  ;
+
+: HEXDUMP ( ptr len -- )
+    BASE @ HEX -ROT ( base ptr len -- ; save base )
+
+    HEXDUMP_HEADER ( print out key along top of table )
+
+    OVER + ( base ptr end )
+    ( expand region to nearest multiple )
+    16ALIGN SWAP -16ALIGN SWAP ( start end )
+
+    BEGIN 2DUP < WHILE ( curr end )
+        ( curr end; print out "addr: val val val val..." )
+        OVER 5 U.R
+        STR" : " TELL ( curr end )
+        OVER 8 DUMP    ( ; dump first 8 words )
+        STR"  === " TELL
+        OVER 8 + 8     ( curr end curr+8 8 ; dump next 8 words )
+            DUMP
+            NL
+        SWAP 16 + SWAP ( curr+16 end )
+    WEND ( base end end )
+    2DROP
+    BASE ! ( restore base );
+
+( ==================  WORD INTROSPECTION/DISASSEMBLY  ====================== )
 
 : ISWHA ( ptr -- )
     ( returns true if ptr could be a word address, i.e. flags is reasonable, has string )
@@ -809,55 +882,6 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     CFA_ERR ; ( return err word )
 
 
-HEX
-: -16ALIGN ( ptr -- aligned(ptr) ) FFF0 AND ; ( rounds down )
-: 16ALIGN  ( ptr -- alignedptr ) 15 + -16ALIGN ; ( rounds up )
-: -8ALIGN ( ptr -- a(ptr) ) FFF8 AND ;
-: 8ALIGN  ( ptr -- a(ptr) ) 7 + -8ALIGN ;
-DECIMAL
-
-( basic: just prints them out )
-: DUMP ( ptr len -- )
-    ( Prints out len words starting at ptr
-      pads to 5 digits (might collide if has -1000 ) )
-    BEGIN DUP 0> WHILE ( ptr len )
-        OVER @ 5 U.R ( ptr len ; print char)
-        1- SWAP 1+ SWAP ( ptr++ len-- )
-    WEND ( ptr 0 )
-    2DROP ;
-
-: HEXDUMP_HEADER
-    7 SPACES ( skip corner )
-    0 BEGIN  ( columns at 5 char pitch: )
-        C' x EMIT DUP 4 U.R ( print xN, pad to 5 chars)
-        DUP 7 = IF 5 SPACES THEN ( add gap after 8th col )
-        1+ DUP 15 > UNTIL
-    DROP NL  ;
-
-: HEXDUMP ( ptr len -- )
-    BASE @ HEX -ROT ( base ptr len -- ; save base )
-
-    HEXDUMP_HEADER ( print out key along top of table )
-
-    OVER + ( base ptr end )
-    ( expand region to nearest multiple )
-    16ALIGN SWAP -16ALIGN SWAP ( start end )
-
-    BEGIN 2DUP < WHILE ( curr end )
-        ( curr end; print out "addr: val val val val..." )
-        OVER 5 U.R
-        STR" : " TELL ( curr end )
-        OVER 8 DUMP    ( ; dump first 8 words )
-        STR"  === " TELL
-        OVER 8 + 8     ( curr end curr+8 8 ; dump next 8 words )
-            DUMP
-            NL
-        SWAP 16 + SWAP ( curr+16 end )
-    WEND ( base end end )
-    2DROP
-    BASE ! ( restore base );
-
-
 
 : SHOW ( xt -- )
     ( tries to show a word a little bit? )
@@ -878,7 +902,7 @@ DECIMAL
         DROP STR" 0BRANCH" TELL
     ELSE DUP ISPRINTABLE IF ( if is ascii )
         C' ' EMIT EMIT C' ' EMIT
-    ELSE DUP ABS 100 < IF
+    ELSE DUP BELOWALLWORDS IF ( xt )
         DROP ( if small constant, just dont print anything )
     ELSE ( xt )
         CFA>  DUP CFA_ERR = IF
@@ -934,14 +958,6 @@ DECIMAL
     RSP_ @ NEG 1+ ; ( skip our own RSP entry? )
 
 
-: BETWEEN ( x a b -- 1/0 )
-    ( return 1 if a < x < b )
-    -ROT ( b x a )
-    OVER < ( b x a<x )
-    -ROT ( a<x b x )
-    > ( a<x b>x )
-    AND ;
-
 ( local used in WRA> )
 0 VARIABLE TESTRA
 
@@ -984,9 +1000,9 @@ DECIMAL
 ( ==== RSHOW: format return addresses informatively )
 : RSHOW_1 ( ra wha - ra )
     ( prints "(WORD)+OFFSET", handles negative, handles WRA_ERR )
-    '(' EMIT DUP >WNA TELL ')' EMIT  ( ; prints "(WORD)")
-    DUP WRA_ERR = IF ( if WRA_ERR, early exit )
-        2DROP RETURN
+    '(' EMIT DUP >WNA TELL ')' EMIT  ( ra wha ; prints "(WORD)")
+    DUP WRA_ERR = IF ( ra wha; if WRA_ERR, early exit )
+        DROP RETURN ( ra )
     THEN
     ( ra wha ; calc and print offset: ra-start_of_word )
     OVER SWAP  ( ra ra wha ; stash a copy )
@@ -998,16 +1014,23 @@ DECIMAL
     ( prints instruction at return address "= [ xxxx (WORD) ]" )
     STR" = [" TELL
     DUP @ SHOW  ( print using show )
-    C' ] EMIT ;
+    C' ] EMIT
+    ;
 
 : RSHOW ( ra -- )
     ( prints "ra: ", looks up WRA>, does RSHOW1 to print name and offset,
       then rshow_2 to print instruction at RA contents )
     DUP 4 U.R ( print the RA )
     C' : EMIT SPACE
-    DUP WRA> RSHOW_1 ( ra )
-    RSHOW_2 ( ra )
-    DROP ;
+    ( ra )
+    DUP BELOWALLWORDS IF ( ra ; if it's a small integer, just exit here )
+        DROP ( )
+    ELSE ( ra; else figure out what word it returns into, code at that spot )
+        DUP WRA> ( ra wha )
+        RSHOW_1 ( ra )
+        RSHOW_2 ( ra )
+        DROP
+    THEN  ;
 
 
 : .RS ( -- prints return stack)
@@ -1015,15 +1038,18 @@ DECIMAL
     RSP@ 1+ ( rsp ; ignore own RA )
     STR" === RSP: " TELL DUP U. NL
     BEGIN DUP RS0 <= WHILE ( loop until rsp > RS0 )
+        ( ra )
         DUP 3 U.R ( print out current rsp )
             ')' EMIT SPACE
-        DUP @ RSHOW ( fetch ra, format with rshow )
+
+        DUP @ RSHOW ( rsp;  fetch ra, format with rshow )
         NL
         1+ WEND ( rsp++ )
     DROP BASE ! ;
 
 
 ( TEMP TEST FUNCS )
+: T3 1 >R .RS RESTART ;
 : T2 RSP@ DEBUG @ ;
 : T1 1 DUP T2 -ROT 2DROP ;
 : WA' TOKEN UPPER FIND ;
