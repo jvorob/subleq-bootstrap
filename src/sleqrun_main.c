@@ -305,6 +305,9 @@ void load_test_program(struct vm_state *vm) {
 int run(struct vm_state *vm, int throttle_mhz) {
     int retval;
 
+    // (NOTE: I checked on acetate, throttling is within 1% accurate up to ~100MHz)
+    // ( however, unthrottled it seems to cap out at around 120MHz on my machine,
+    //   so that's about the limit )
     if (throttle_mhz <= 0) { throttle_mhz = 1000000; } // effectively unlimited
     const int64_t ops_per_msec = throttle_mhz * 1000; // 1MHZ is 1000 ops/ms
     const int64_t MSEC_TO_NS = 1000 * 1000;
@@ -400,14 +403,15 @@ int run_binary(char *fname) {
     init_vm(&global_vm);
     load_binary_file(&global_vm, binfile);
 
-    // EDIT THIS TO SET SPEED
+    // EDIT THIS TO SET SPEED (  accurate up to ~100MHz)
     const int THROTTLE_N_MHZ = 10;
 
     fprintf(stderr, "======= Running %s, %dMHz:\n",
                 glb_QUAD_ALIGNED? "quad-aligned":"16bit",
                 THROTTLE_N_MHZ);
     int retval = run(&global_vm, THROTTLE_N_MHZ);
-    fprintf(stderr, "======= Halted with code %d after %ld steps\n", retval, global_vm.num_cycles);
+    fprintf(stderr, "======= Halted with code %d after %ld steps\n",
+                retval, global_vm.num_cycles);
 
     if (glb_debug_opts.dump_len > 0) {
         int addr = glb_debug_opts.dump_base_addr;
