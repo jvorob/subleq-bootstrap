@@ -581,6 +581,8 @@ DECIMAL
     ( TODO reset data stack )
     RS0 1+ NEG RSP_ ! ( reset return stack )
 
+    DS0 2+ NEG NOSP_ ! ( reset data stack ??? )
+
     ( reset variables )
     0 BULKLOAD ! ( ; interactive )
     10 BASE !    ( ; decimal )
@@ -1055,16 +1057,21 @@ DECIMAL
 
 : .RS ( -- prints return stack)
     RSP@ 1+ ( rsp ; ignore own RA )
-    STR" === RSP: " TELL DUP U. NL
-    BEGIN DUP RS0 <= WHILE ( loop until rsp > RS0 )
-        ( rsp )
-        DUP 3 U.R ( print out current rsp )
-            ')' EMIT SPACE
+    STR" === RSP: " TELL
+    DUP U. NL ( rsp ; print rsp )
+    ( rsp )
+    RS0  ( rsp rs0 )
+    RSDUMP ;
 
-        DUP @ RSHOW ( rsp;  fetch ra, format with rshow )
-        NL
-        1+ WEND ( rsp++ )
-    DROP BASE ! ;
+: .DS ( -- show the data stack a bit )
+    BASE @ HEX
+    STR" ====== SP: " TELL
+        SP@ . NL
+    SP@ 10 -
+    DS0 ( sp-0x10, DS0 )
+    OVER - ( sp-0x1, len_to_DS0 )
+    HEXDUMP ( show a bit on either side )
+    BASE ! ;
 
 ( === install new exception handler === )
 
