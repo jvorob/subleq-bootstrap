@@ -1120,7 +1120,31 @@ DECIMAL
         LATEST @ >WNA TELL NL
     ;
 
-( ==== ??? )
+( ==== ASSERTS? NOT WORKING )
+
+: ASSERT_INIT ( n -- [ saves 1 val to rs ] )
+    ( we're saying "there's 1 thing on the stack rn, save that " )
+    ( so, save stackcount -n (n itself will be baked in, but that's fine ) )
+    STACKCOUNT SWAP - ( stackcount-n )
+    R> SWAP >R >R ( push to return stack, under own RA )
+    ;
+
+: ASSERT ( n -- [ errors if needed ] )
+   ( should error out if current STACKCOUNT-n differs from ASSERT_INIT time )
+   STACKCOUNT SWAP - ( curr_stackcount-n )
+   R> R> ( stack-n ra old_stack-n )
+   DUP -ROT ( stack-n old_stack-n ra old_stack-n )
+   >R >R ( stack-n old_stack-n ; push others back )
+   - ( delta, how many more/less elements than expected )
+   DUP 0<> IF ( if nonzero, error out )
+           STR" STACK ASSERT ERR: " TELL
+           ( delta )
+           . NL ( print number and end line )
+           HANDLE_ERR ( restarts )
+   THEN ( delta )
+   DROP ;
+
+
 
 GREET
 END_OF_FILE
