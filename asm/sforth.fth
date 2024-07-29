@@ -956,7 +956,7 @@ DECIMAL
         STR" ASM \n" TELL
     THEN
 
-    DUP 32 DISASSEMBLE
+    ( xt ) 32 DISASSEMBLE
     ;
 
 ( ================== RETURN STACK INTROSPECTION/DISASSEMBLY  ====================== )
