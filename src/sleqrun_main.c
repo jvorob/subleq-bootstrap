@@ -299,20 +299,17 @@ void load_test_program(struct vm_state *vm) {
 //Runs specified memory
 //Assumes memory is of size (MEM_SIZE+MEM_BUFF)*WORD_SIZE
 //Starts executing at pc=0, runs until halt
+//if throttle_mhz > 0, limits speed to that many MHz
 //
 //On halt, returns retval = first operand of halt instruction
-int run(struct vm_state *vm) {
+int run(struct vm_state *vm, int throttle_mhz) {
     int retval;
 
-    // EDIT THIS TO SET SPEED
-    const int THROTTLE_N_MHZ = 5;
-    fprintf(stderr, "Loading binary from %s\n", fname);
-
+    if (throttle_mhz <= 0) { throttle_mhz = 1000000; } // effectively unlimited
+    const int64_t ops_per_msec = throttle_mhz * 1000; // 1MHZ is 1000 ops/ms
     const int64_t MSEC_TO_NS = 1000 * 1000;
     const int64_t SEC_TO_NS = 1000 * MSEC_TO_NS;
 
-    // 1MHZ is 1000 ops every millisecond
-    const int64_t ops_per_msec = N_MHZ * 1000;
 
     // Get initial time, we'll use this to throttle our progress
     const clockid_t CLOCK = CLOCK_MONOTONIC;
@@ -370,7 +367,7 @@ void load_binary_file(struct vm_state *vm, FILE *file) {
         exit(1);
     }
 
-    fprintf(stderr, "Loaded binary of %ld words\n", offset/2);
+    fprintf(stderr, "%ld words\n", offset/2);
 }
 
 // ================= MAIN STUFF =================
@@ -380,7 +377,7 @@ void run_default_program() {
     init_vm(&global_vm);
     load_test_program(&global_vm);
     printf("Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
-    int retval = run(&global_vm);
+    int retval = run(&global_vm, -1);
     printf("=======\nExited with code %d\n", retval);
 }
 
@@ -399,12 +396,18 @@ int run_binary(char *fname) {
 
     if(binfile == NULL) { err(1, "Failed to open file %s", fname); }
 
-    fprintf(stderr, "Loading binary from %s\n", fname);
+    fprintf(stderr, "Loading binary from %s... ", fname);
     init_vm(&global_vm);
     load_binary_file(&global_vm, binfile);
-    fprintf(stderr, "Running %s:\n=======\n", glb_QUAD_ALIGNED? "quad-aligned":"unaligned");
-    int retval = run(&global_vm);
-    fprintf(stderr, "=======\nHalted with code %d after %ld steps\n", retval, global_vm.num_cycles);
+
+    // EDIT THIS TO SET SPEED
+    const int THROTTLE_N_MHZ = 10;
+
+    fprintf(stderr, "======= Running %s, %dMHz:\n",
+                glb_QUAD_ALIGNED? "quad-aligned":"16bit",
+                THROTTLE_N_MHZ);
+    int retval = run(&global_vm, THROTTLE_N_MHZ);
+    fprintf(stderr, "======= Halted with code %d after %ld steps\n", retval, global_vm.num_cycles);
 
     if (glb_debug_opts.dump_len > 0) {
         int addr = glb_debug_opts.dump_base_addr;
