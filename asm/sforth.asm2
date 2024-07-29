@@ -187,7 +187,7 @@ halt4:   4  4 0DC    #DC:   err: halt4 # Executed 0d 0d 0d
 
 @160
 halt5: 5 5 halt5 #halt5: divide by zero
-halt6: 6 6 halt6 #halt6: not implemented
+halt6: 6 6 halt6 #halt6: not implemented / assert error
 halt7: 7 7 halt7 #halt7: Exception in Exception
 #halt7: 7 7 halt7 #halt7:
 #halt7: 7 7 halt7 #halt7:
@@ -2173,6 +2173,11 @@ HANDLE_EXCEPT0_wd: do_colon
     # print out "EXCEPTION: N"
     LITSTR_wd 0B "EXCEPTION: " TELL_wd
     DUP_wd LIT_wd "0" _plus_wd EMIT_wd NL_wd
+
+    # Instead: clear exception, restart
+    LIT_wd 0 IN_EXC_wd _bang_wd # clear exception
+    LIT_wd restart_wd_addr _at_wd EXECUTE_wd # restart
+
     HALTN_wd
     # NOTE: if replaced, need to clear IN_EXC back to 0
     # to mark the exception as handled
@@ -2213,15 +2218,64 @@ _qNUMBER_wd: do_colon # ( N -- [?])
     EXIT_wd
 
 
+_qSTACK_wd: ? # ( if DS or RS underflow, restart )
+    X X ; NOSP_ X; # X holds NOSP(+)
+    # If NOSP == dstack_base + 2, the stack is empty
+    # If NOSP > dstack_base + 2, we've underflowed
+    # IF (dstack_base+2-NOSP) < 0, we've underflowed
+    # If (dstack_base+3-NOSP) <= 0, we've underflowed
+    DS0_val Z; Z X; Z Z; # X = dstack_base(+)
+    NOSP_ Z; Z X; # X = dstack_base - NOSP
+    n3 X ; # X = dstack_base+3-NOSP
+
+    Z X ?+3 # If <=0 (underflow, skip ahead)
+    Z Z NEXT_cd # else all is well
+
+    #==== UNDERFLOWED, print errors, go back to restart
+    # Switch into seocndary mode for error handling
+    Z Z; CWA CWA;
+    ?+8 Z; Z CWA ; Z Z RUN_cd # SET CWA to point to rest of word, as a secondary, then exec
+    ?        # CWA: address of rest of word as secondary
+    do_colon # CW: do_colon
+
+    LITSTR_wd 10 "STACK UNDERFLOW" 0A TELL_wd
+    LIT_wd restart_wd_addr _at_wd EXECUTE_wd
+    # shouldnt return
+    LIT_wd 6 HALTN_wd
+
+
+# If not compiling, output ok
+_OK_wd: do_colon
+_OK_wd_plus_1:
+    STATE_wd _at_wd # 1: compiling
+    _0BRANCH_wd 2 # if not compiling, skip
+        # if compiling, exit:
+        EXIT_wd
+    LITSTR_wd 4 " OK" 0A # print " OK\n"
+    TELL_wd
+    EXIT_wd
+
+
+SILENT_const: EXIT_wd # address of EXIT, we'll use it to overwrite OK
+SILENT_hd: HALTN_hd 0 6 "SILENT"
+SILENT_wd: ?
+    # overwrites OK to exit immediately, used for bulkloading while
+    # sourcing the bootstrap forth file
+    _OK_wd_plus_1 _OK_wd_plus_1 ;      # clear first word of OK
+    SILENT_const Z; Z _OK_wd_plus_1;  # set it to EXIT_wd
+    Z Z NEXT_cd
+
+
 INTERPRET1_wd: do_colon
     TOKEN_wd
 
     DUP_wd FIND_wd # Try FIND (tok wha|0 -- )
     DUP_wd
-    _0BRANCH_wd 005
+    _0BRANCH_wd 006
         # If found word,
         SWAP_wd DROP_wd #drop token
-        _qEXECUTE_wd EXIT_wd #exec/compile, exit
+        _qEXECUTE_wd  # Exec/compile
+        _qSTACK_wd EXIT_wd # check stack, exit
 
     DROP_wd # We have an extra 0 becasue we didn't ?DUP
 
@@ -2235,9 +2289,11 @@ INTERPRET1_wd: do_colon
     #ELSE:
     # token is \n or invalid
     DUP_wd _1plus_wd _at_wd  # ( tok firstchar )
-    LIT_wd 0A _eq_wd _0BRANCH_wd 003  # '\n' = IF
+    LIT_wd 0A _eq_wd _0BRANCH_wd 004  # '\n' = IF
         # If was \n: continue
-        DROP_wd EXIT_wd
+        DROP_wd
+        _OK_wd
+        EXIT_wd
 
     # ELSE: invalid token, print a warning, restart
     # ( tok )
@@ -2250,10 +2306,11 @@ INTERPRET1_wd: do_colon
     HALT1_wd #shouldn't reach here
 
 
-INTERPRET_hd: HALTN_hd 0 9 "INTERPRET"
+INTERPRET_hd: SILENT_hd 0 9 "INTERPRET"
 INTERPRET_wd: do_colon
     INTERPRET1_wd
     BRANCH_wd 0FFFE # branch -2
+
 
 # ================================================================
 #
@@ -2567,6 +2624,12 @@ MAIN_wd: do_colon
     INTERPRET_wd
     EXIT_wd
 
+# ======= INITIAL CONSTS for startup stuff
+forth_canary_val: 0CAFE
+#forth_stack_base_val: dstack_base #(+)
+forth_rstack_base_val: rstack_base
+forth_init_dp_val: 3000
+forth_init_e_handler: HANDLE_EXCEPT0_wd
 
 
 # ========= STARTUP FLOW
@@ -2575,34 +2638,57 @@ MAIN_wd: do_colon
 #          Clears RSP (RESTART is outermost func)
 #          Calls MAIN
 #          if return from main, halt
+_RESTART_CLEAR_STACKS_wd: ?
+    # CLEAR DATA STACK
+    NOSP_ NOSP_; DS0_val NOSP_; # NOSP(-) = DS0
+    i2 NOSP_ ; #NOSP(-) -= 2 ; NOSP(-) = DS0+2
+    # Init stack canary at TOS (will be written to DS0+1)
+    TOS TOS; forth_canary_val Z; Z TOS; Z Z; #push CAFE to TOS as a marker?
+
+    # Init return stack ( empty, rsp points 1 above RS0 )
+    RSP_ RSP_; RS0_val RSP_; # RSP(-) = RS0
+    i1 RSP_ ; # RSP(-) -=1, RSP = RS0+1
+
+    # continue with restart
+    Z Z NEXT_cd
+
 
 # If main returns, it will return here, so we can error out
 RESTART_hd: INTERPRET_hd 0 7 "RESTART"
 RESTART_wd: do_colon
 RESTART_bd:
+    #NOTE: start doesn't enter through do_colon, it just sets NWA to
+    # start executing here.
+
+    # CLEAR_STACKS, so it won't touch either stack
+    _RESTART_CLEAR_STACKS_wd
+
+    # clear compile mode
+    LIT_wd 0 STATE_wd _bang_wd
+
+    # Clear any WIP words
+    # If WIP word > LATEST, reset DP to WIP, clear IWP
+    WIP_wd _at_wd LATEST_wd _at_wd _gt_wd _0BRANCH_wd 0009
+        # If WIP>LATEST
+        WIP_wd _at_wd DP_wd _bang_wd # set DP back to discard WIP word
+        LIT_wd   0000 WIP_wd _bang_wd # clear WIP
+
+    # Stacks are initialized and clear
+
+    #=== Reset normal variables
     LIT_wd 0A BASE_wd _bang_wd # BASE 10
 
-    # Init return stack
-    RS0_wd _1plus_wd NEG_wd RSP__wd _bang_wd # RSP(-) = RS0+1, points to canary
-
-
+    #=== Greet, start
     LITSTR_wd 08 "STARTING" TELL_wd NL_wd
-
-    #TODO: fix canaries
-
     MAIN_wd # JUMP TO MAIN
 
     # SHOULDN'T EXIT
     LITSTR_wd 0B "MAIN EXITED" TELL_wd NL_wd
     HALT1_wd
 
+
 # ======= INITIAL CONSTS for startup stuff
-forth_canary_val: 0CAFE
-#forth_stack_base_val: dstack_base #(+)
-forth_rstack_base_val: rstack_base
-forth_init_dp_val: 3000
 forth_init_restart_wd: RESTART_wd # first forth word we jump to after START
-forth_init_e_handler: HANDLE_EXCEPT0_wd
 
 
 # Start: inits persistent state constants
@@ -2753,3 +2839,15 @@ Z Z halt0
 # ### Pop NOS into Z
 # ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: @NEGNOS(Z)
 # i1 NOSP_; #shrink stack
+#
+#
+# ### Switch from secondary to primary
+# ? # Forth-word: next cell
+# ? # CF: execute next cell as asm
+# # ... asm
+#
+# ### Switch from primary to secondary
+# Z Z; CWA CWA;
+# ?+8 Z; Z CWA ; Z Z RUN_cd # SET CWA to point to rest of word, as a secondary, then exec
+# ? # address of rest of word as secondary
+# do_colon # start of word

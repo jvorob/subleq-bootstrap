@@ -1,3 +1,4 @@
+SILENT
 : IMMEDIATE 1 LATEST @ 1+ ! ;
 : [ 0 STATE ! ; IMMEDIATE
 : ] 1 STATE ! ;
@@ -61,6 +62,11 @@
 
 ( Stack helpers )
 : NIP ( a b - b ) SWAP DROP ;
+
+: / ( a b - a/b )
+    /MOD ( a/b a%b ) DROP ;
+: MOD ( a b - a%b )
+    /MOD ( a/b a%b ) NIP ;
 
 : HEX 16 BASE ! ;
 : DECIMAL 10 BASE ! ;
