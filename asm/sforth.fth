@@ -990,12 +990,6 @@ DECIMAL
 : AB_TO_ALEN ( a b -- a b-a )
     OVER - ;
 
-: RSDUMP ( -- )
-    STR" RSP: " TELL RSP@ . NL
-    ( dump a wide-ish region around the return stack )
-    RSP@ 2- ( rsp-2 )
-    DUP RS0 ( rsp-2, rs0 )
-    AB_TO_ALEN HEXDUMP ;
 
 ( ==== RSHOW: format return addresses informatively )
 : RSHOW_1 ( ra wha - ra )
@@ -1032,13 +1026,32 @@ DECIMAL
         DROP
     THEN  ;
 
+: RSDUMP ( start last -- )
+    BASE @ HEX >R
+
+    SWAP ( OVER + ( start start+len ) )
+
+    ( loop until currp > endp )
+    BEGIN 2DUP >= WHILE ( endp currp ; loop until rsp > RS0 )
+        ( endp currp )
+        DUP 3 U.R ( print out current rsp )
+            ')' EMIT SPACE
+
+        DUP @ RSHOW ( rsp;  fetch ra, format with rshow )
+        NL
+
+        1+  ( endp currp++)
+    WEND ( endp currp )
+
+    2DROP
+    R> BASE !
+    ;
 
 : .RS ( -- prints return stack)
-    BASE @ HEX
     RSP@ 1+ ( rsp ; ignore own RA )
     STR" === RSP: " TELL DUP U. NL
     BEGIN DUP RS0 <= WHILE ( loop until rsp > RS0 )
-        ( ra )
+        ( rsp )
         DUP 3 U.R ( print out current rsp )
             ')' EMIT SPACE
 
@@ -1047,9 +1060,27 @@ DECIMAL
         1+ WEND ( rsp++ )
     DROP BASE ! ;
 
+( === install new exception handler === )
+
+: HANDLE_EXC ( rsp nwa cwa code -- )
+    HEX
+    DUP STR" Exception: " TELL . NL DROP
+    STR" CWA: " TELL SHOW NL
+    STR" NWA: " TELL RSHOW NL
+    STR" === RSP: " TELL DUP . NL
+    ( rsp )
+    RS0 RSDUMP ( DUMP RETURN STACK )
+
+    STR" === STACK) " TELL NL
+    .S
+    0 IN_EXC !
+    HANDLE_ERR ;
+
+' HANDLE_EXC EXC_HANDLER !
+
 
 ( TEMP TEST FUNCS )
-: T3 1 >R .RS RESTART ;
+: T3 1 >R  ;
 : T2 RSP@ DEBUG @ ;
 : T1 1 DUP T2 -ROT 2DROP ;
 : WA' TOKEN UPPER FIND ;

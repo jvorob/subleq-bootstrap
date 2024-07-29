@@ -61,17 +61,23 @@ alu_A: 0
 alu_B: 0
 
 # == Uninitialized mem catcher
-#   if we jump to uninitialized memory, we'll clear 0d, then jump here
-#       we'll then execute 0 0 0100 and jump to catch_bad_mem
+#   If ASM jumps to uninitialized memory,
+#     - we'll execute `0d 0d 0d`, jump to 0d, execute `Z Z catch_bad_mem`
+#     - so we get to catch_bad_mem with *(0d) == 0
+
+#   If we `garbage EXECUTE` ( i.e. execute a bad xt, forth-branch to data)
+#   - NWA points to garbage
+#   - CWA = *(NWA) = garbage
+#   - CW = *(garbage) = 0d (jumps to 0d)
+#   - asm executes `150 0 catch_bad_mem`  ( NOTE: *(150) should be 0 so we still jump )
+#   - so we get to catch_bad_mem with *(0d) == 150
 #
-#   if we execute a random memory address as a forth word, the CWA would contain 0d, so
-#       we would jump directly to 0d without clearing it.
-#       NOTE: 110 must contain a 0 so that this still always jumps
-#
-#   if we run off the end of a forth word, we'll treat 0d as an execution token/word address
-#       the CWA would contain this will set CWA=0d, and will jump to *(0d), which is 0D9 == halt3
-#
-@0d   110 00 0100
+#   if we `garbage NWA !` (e.g. bad returnaddr, run off end of word, forth-branch to blank mem)
+#       - NWA points to blank mem (0d)
+#       - CWA = *(NWA) = 0d
+#       - CW = *(0d) = 150  (catch_bad_codeword)
+#       - so we jump to catch_bad_codeword
+@0d   0150 00 0140
 
 @10 #ALU outputs
 # & | ^ _   << >> _ _
@@ -146,22 +152,43 @@ halt4:   4  4 0DC    #DC:   err: halt4 # Executed 0d 0d 0d
    R ?+3    ?    #set Q = -R
    Z   Z  0FF    #jmp -R  (FF temp, gets Q)
 
-#more errors
-@100  catch_bad_mem: # jumping to 0d ends up here
+
+
+# === ASM EXCEPTIONS ===
+# saves state to stack (CWA NWA RSP exception code )
+# Initializes reserve return stack
+# Jumps to handle_exception
+@100  #NOTE: must Z Z before jumping here
+    except6: i1 Z; # 6: not implemented error
+    except5: i1 Z; # 5: divide by zero
+    except4: i1 Z; # 4: bad asm ( executed 0d 0d 0d)
+    except3: i1 Z; # 3: bad asmjump ( jumped to 0d ) CW=0d
+    except2: i1 Z; # 2: bad forthbranch CWA=0d
+    except1: i1 Z; # unused?
+    except0:       # unused? success?
+
+    # NOW:
+    X X; Z X; # save X(+) = exception_code
+    Z Z 8A0 # Jump to handle_exception_X
+
+
+# ===== BAD MEMORY CATCHER (see notes near @0D )
+@140  catch_bad_mem: # jumping to 0d ends up here
     # if we jumped to uninitialized memory, we'd first execute 0d 0d 0d, so 0d will be 0
-    Z Z ; Z 0d halt4 # if 0d == 0, halt4
+    Z Z ; Z 0d except4 # if 0d == 0, halt4 (ASM executed 0d 0d 0d)
 
-    # else, 0d still contains 0D6, so we must have jumped directly to 0d
-    Z Z halt3 # halt3
+    # else, 0d still contains 150, so we must have jumped directly to 0d
+    Z Z except3 # halt3 # (ASM jumped directly to 0d)
 
-@110 catch_bad_word: # executing a WA of 0d will load this as the interpreter
-    # Note: address 110 must be 0 so that jumping to 0D yields LEQZ and jumps
-    Z Z halt2
+# executed CWA = 0d
+@150 catch_bad_codeword: # executing a CF of 0d will load this as the interpreter
+    # Note: address 150 must be 0 so that jumping to 0D yields LEQZ and jumps
+    Z Z except2
 
-@120
+@160
 halt5: 5 5 halt5 #halt5: divide by zero
 halt6: 6 6 halt6 #halt6: not implemented
-halt7: 7 7 halt7 #halt7:
+halt7: 7 7 halt7 #halt7: Exception in Exception
 #halt7: 7 7 halt7 #halt7:
 #halt7: 7 7 halt7 #halt7:
 #halt7: 7 7 halt7 #halt7:
@@ -169,7 +196,7 @@ haltE: 0E 0E haltE #haltE: EOF
 
 
 # ====================== CORE FORTH VARS
-@180
+@200
 # NWA/CWA: in-code pointers (see NEXT_cd:)
 
 # VARS:
@@ -367,9 +394,63 @@ EXIT_hd: 0 0 4 "EXIT"
     Z Z NEXT_cd; #Jump next
 
 
+# ====== EXCEPTION RECOVERY
+
+# When an exception occurs, we'll jump here with
+# X(+) set to the exception code
+# This will:
+#   - push state onto the stack ( rsp nwa cwa except_code)
+#   - changes RSP to point to a recovery area
+#   - RUN HANDLE_EXCEPTION
+@8A0 handle_exception_X:
+    Z Z ?+2 # Skip over constants:
+
+# XT of forth exception handler
+# Gets called with ( rsp nwa cwa except_code -- )
+# Note: rsp will be in a special recovery area, so don't
+e_handler_val: 0DEAD # (constant, skipped over )
+
+e_in_e: 0 # set to 1 if we're in an exception,
+
+# Note: check for recursive exceptions
+    Z e_in_e ?+3 # if <=0, we're ok
+    Z Z halt7    # else >0, we've got an exception in an exception
+    e_in_e e_in_e; n1 e_in_e;    # set e_in_e to 1
+
+    ### Push TOS into 5OS
+    T T; TOS T; n1 NOSP_; #grow stack
+    ?+11 ?+10; NOSP_ ?+D; ?+C  ?+B ; NOSP_ ?+8; ?+9  ?+8 ; NOSP_ ?+5;
+    0    0   ; T   0; # GADGET: NEG!NOS(T)
+
+    ### Push RSP(+) into 4OS
+        n1 NOSP_; #grow stack
+        ?+11 ?+10; NOSP_ ?+D; ?+C  ?+B ; NOSP_ ?+8; ?+9  ?+8 ; NOSP_ ?+5;
+        0    0   ; RSP_  0; # GADGET: NEG!NOS(T)
+    ### Push NWA(+) into 3OS
+        T T; NWA T ; n1 NOSP_; #grow stack
+        ?+11 ?+10; NOSP_ ?+D; ?+C  ?+B ; NOSP_ ?+8; ?+9  ?+8 ; NOSP_ ?+5;
+        0    0   ; NWA  0; # GADGET: NEG!NOS(T)
+    ### Push CWA(+) into NOS
+        T T; CWA T; n1 NOSP_; #grow stack
+        ?+11 ?+10; NOSP_ ?+D; ?+C  ?+B ; NOSP_ ?+8; ?+9  ?+8 ; NOSP_ ?+5;
+        0    0   ; T  0; # GADGET: NEG!NOS(T)
+
+    # Put exception code in TOS
+    Z Z; X Z; TOS TOS; Z TOS; # TOS(+) = X(-)
+
+    # TODO: setup recovery return stack
+
+    # copy e_handler into CWA, jump RUN
+    Z Z ;
+    CWA CWA; e_handler_val Z; Z CWA;
+    Z Z RUN_cd
+
+
+
+
 # ====== FORTH PRIMITIVE WORDS
 
-@900 #WORDS
+@960 #WORDS
 
 EXECUTE_hd: EXIT_hd 0 7 "EXECUTE"
 EXECUTE_wd: ? # ( xt -- ; executes word on TOS, then continues)
@@ -766,6 +847,16 @@ TOKP_wd:     do_var   TOKP_val: 0
 
 restart_wd_addr: 0DEAD # Init will fill this in, since we don't have forward lebels
 
+# Holds xt for exception handler, will get called by handle_exception_x
+# (variable, implemented as const because of assembly weirdness)
+EXC_HANDLER_hd: TOKP_hd 0 0B "EXC_HANDLER"
+EXC_HANDLER_wd: do_const  e_handler_val
+
+# Set to 1 when in an exception, make sure to clear it before restarting
+# ( var impl as const)
+IN_EXC_hd: EXC_HANDLER_hd 0 6 "IN_EXC"
+IN_EXC_wd: do_const  e_in_e
+
 # Other Vars:
 # LATEST (defined just before main loop, since is end of dict)
 
@@ -827,7 +918,7 @@ LITSTR_wd: ?
     Z Z NEXT_cd
 
 
-LW_LIT_hd: TOKP_hd 0  6 "LW_LIT"
+LW_LIT_hd: IN_EXC_hd 0  6 "LW_LIT"
 LW_LIT_wd: do_const LIT_wd
 
 LW_LITSTR_hd: LW_LIT_hd 0  9 "LW_LITSTR"
@@ -1160,6 +1251,9 @@ _times_loop:
 # else, jump loop:
 
 
+_divby0: # jump to exception
+    Z Z except5
+
 _divmod_exit: # We jump here once X==0
     # W = 0
     # X = remainder
@@ -1220,7 +1314,7 @@ _divmod_wd: ? # (x y - x/y x%y )
     # Flip Y to positive, if Y == 0, error out?
     Z Y ?+3 # if Y <= 0: nextif
     Z Z ?+12 # else Y>0: continue to endif (6 ops, 18words)
-    Y Z halt5 # nextif Y>=0 (Y==0) halt5, divide by 0
+    Y Z _divby0 # nextif Y>=0 (Y==0) exception, divide by 0
     # nextelse: Y < 0: flip Y,
         Y Y; T T; Z T; T Y; i1 P1; #flip Y, P1--
     # endif
@@ -1567,7 +1661,7 @@ TOKEN_cd_eof: Z Z haltE
 
 # Skip comments until we hit \n?
 TOKEN_cd_comment: #TODO
-    Z Z halt6
+    Z Z except6
 
 
 
@@ -2062,6 +2156,28 @@ FIND_cd_loop:
 #                       EXECUTION WORDS
 #
 # ================================================================
+HALTN_hd: FIND_hd 0 5 "HALTN"
+HALTN_wd: ? # ( n -- [halts with code n] )
+    Z Z ?+3 # skip over halt inst
+haltn_cd1: 0
+haltn_cd2: 0 haltn_cd1 # _ _ haltn
+    # Copy TOS into place
+    haltn_cd1 haltn_cd1; TOS Z; Z haltn_cd1; Z Z;
+    haltn_cd2 haltn_cd2; TOS Z; Z haltn_cd2; Z Z;
+    Z Z haltn_cd1 # jump to it
+
+
+# Default exception handler
+HANDLE_EXCEPT0_wd: do_colon
+    #LIT_wd 6 HALTN_wd
+    # print out "EXCEPTION: N"
+    LITSTR_wd 0B "EXCEPTION: " TELL_wd
+    DUP_wd LIT_wd "0" _plus_wd EMIT_wd NL_wd
+    HALTN_wd
+    # NOTE: if replaced, need to clear IN_EXC back to 0
+    # to mark the exception as handled
+    HALT1_wd # if failed, halt here
+
 # INTERPRET
 
 # Temp bootstrap words:
@@ -2134,7 +2250,7 @@ INTERPRET1_wd: do_colon
     HALT1_wd #shouldn't reach here
 
 
-INTERPRET_hd: FIND_hd 0 9 "INTERPRET"
+INTERPRET_hd: HALTN_hd 0 9 "INTERPRET"
 INTERPRET_wd: do_colon
     INTERPRET1_wd
     BRANCH_wd 0FFFE # branch -2
@@ -2412,6 +2528,9 @@ TEST_TAILCALL_wd: do_colon # should emit "A" and not "X"
     LIT_wd "A" TAILCALL_wd EMIT_wd
     LIT_wd "X" EMIT_wd # shouldn't be reached
 
+TEST_EXCEPTION_wd: ?
+    Z Z except3
+
 # Should emit "H ii"
 TEST_wd: do_colon
 TEST_bd:
@@ -2427,7 +2546,7 @@ TEST_bd:
     #TEST_BRANCH_wd
 
     #TEST_TOKEN_wd
-    TEST_FIND_wd
+    #TEST_FIND_wd
 
     #TEST_NUMBER_wd
     #TEST_STRCPY_wd
@@ -2435,6 +2554,7 @@ TEST_bd:
 
     #TEST_EXECUTE_wd
     #TEST_TAILCALL_wd
+    TEST_EXCEPTION_wd
 
     #INTERPRET_wd
 
@@ -2482,6 +2602,7 @@ forth_canary_val: 0CAFE
 forth_rstack_base_val: rstack_base
 forth_init_dp_val: 3000
 forth_init_restart_wd: RESTART_wd # first forth word we jump to after START
+forth_init_e_handler: HANDLE_EXCEPT0_wd
 
 
 # Start: inits persistent state constants
@@ -2508,11 +2629,13 @@ START_cd: # Starts executing here with no state
     TOS TOS; forth_canary_val Z; Z TOS; Z Z; #push CAFE to TOS as a marker?
 
     # ==== Init consts
+    # TODO: should these go in forth_init:, not START?
     # (we'd assemble these directly but we don't
     #  have forward labels in asm2)
     DP_val          DP_val         ; forth_init_dp_val     Z; Z DP_val;     Z Z;
     LATEST_val      LATEST_val     ; forth_init_latest_val Z; Z LATEST_val; Z Z;
     restart_wd_addr restart_wd_addr; forth_init_restart_wd Z; Z restart_wd_addr; Z Z;
+    e_handler_val   e_handler_val  ; forth_init_e_handler  Z; Z e_handler_val; Z Z;
 
 
     # ==== START EXECUTING RESTART
