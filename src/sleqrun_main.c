@@ -303,14 +303,36 @@ void load_test_program(struct vm_state *vm) {
 //On halt, returns retval = first operand of halt instruction
 int run(struct vm_state *vm) {
     int retval;
+
+    // EDIT THIS TO SET SPEED
+    const int THROTTLE_N_MHZ = 5;
+
+    const int64_t MSEC_TO_NS = 1000 * 1000;
+    const int64_t SEC_TO_NS = 1000 * MSEC_TO_NS;
+
+    // 1MHZ is 1000 ops every millisecond
+    const int64_t ops_per_msec = N_MHZ * 1000;
+
+    // Get initial time, we'll use this to throttle our progress
+    const clockid_t CLOCK = CLOCK_MONOTONIC;
+    struct timespec last_time = { } ;
+    clock_gettime(CLOCK, &last_time);
+
     do {
         retval = step(vm);
 
-        // Drop speed to 10 MHz, sleep for 10 us every 100 ops
-        // Drop speed to 100 MHz, sleep for 10 us every 1000 ops
-        if (vm->num_cycles % 1000 == 0) {
-            const struct timespec ts = { .tv_nsec=10000 };
-            nanosleep(&ts, NULL);
+        if (vm->num_cycles % ops_per_msec == 0) {
+
+            // Add 1ms to last_time
+            last_time.tv_nsec += MSEC_TO_NS; // 3 ms into the future
+            if(last_time.tv_nsec > SEC_TO_NS) {
+                last_time.tv_sec++;
+                last_time.tv_nsec -= SEC_TO_NS;
+            }
+
+            // Sleep until that time
+            clock_nanosleep(CLOCK, TIMER_ABSTIME, // sleep until that time
+                    &last_time, NULL );
         }
 
     } while (retval == 0);
