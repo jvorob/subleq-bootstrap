@@ -21,7 +21,7 @@
 
 
 // DOCS:
-// Basics: 
+// Basics:
 // Executing from PC
 // if next 3 words at PC are A, B, NEXT
 // do mem[B] -= mem[A]
@@ -94,7 +94,7 @@ struct vm_debug_opts glb_debug_opts = {0};
 
 //Test program: should output 'A' and exit ?
 int16_t program_init[] = {
-      //0x0 
+      //0x0
       //Z     entry  Z2      P1   M1
        0,   0,0x20,   0,     1,  -1,   0,   5,
 
@@ -170,7 +170,7 @@ int step(struct vm_state *vm) {
         fprintf(stderr, LOG_PREFIX "OP: PC=x%04hx", vm->pc);
 
         //optional debug printing
-        
+
         // === Standard asm variables, useful for debugging assembler
         SHOW_VAR_NEG(X,X_ADDR);
         //SHOW_VAR_NEG(Y,Y_ADDR);
@@ -180,7 +180,7 @@ int step(struct vm_state *vm) {
 
         // SHOW_VAR(sb,0x38);
         // SHOW_VAR(se,0x39);
-        
+
 
         // === Forth vars
         SHOW_VAR(NWA, 0x800);
@@ -222,14 +222,14 @@ int step(struct vm_state *vm) {
     // special cases:
     // 8 is stdin
     // 9 is stdout
-    // if *A==8, read one character from stdin, subtract it from *B 
+    // if *A==8, read one character from stdin, subtract it from *B
     // if *B==9, write -*B to stdout
-    
+
     // ==== Fetch vals
     //NOTE: A_VAL and B_VALS should be signed, since we do arithmetic/tests w/ them
     int16_t A_VAL;
     //stdin
-         if(A == IN_ADDR) { A_VAL = get_input(); } 
+         if(A == IN_ADDR) { A_VAL = get_input(); }
     //ALU ops
     else if((A & ALU_MASK) == ALU_BASE) {
         switch(A) {
@@ -256,11 +256,11 @@ int step(struct vm_state *vm) {
     int16_t diff = B_VAL - A_VAL;
     //fprintf(stderr, "DEBUG:   ops: A=%hx, A_val=%hx,   B=%hx, B_val=%hx,  B_val2=%hx\n",
     //        A, A_VAL, B, B_VAL, diff);
-    
+
     if(B == OUT_ADDR) { write_output(diff); }
     else       { vm->mem[B] = diff; }
 
-    // === Advance PC 
+    // === Advance PC
     // (note: only fetch next after the modify)
     // (note2: actually this wont matter because if you want to jump to apointer
     // it will only work if it's <=0 (>32k?))
@@ -306,6 +306,7 @@ int run(struct vm_state *vm) {
 
     // EDIT THIS TO SET SPEED
     const int THROTTLE_N_MHZ = 5;
+    fprintf(stderr, "Loading binary from %s\n", fname);
 
     const int64_t MSEC_TO_NS = 1000 * 1000;
     const int64_t SEC_TO_NS = 1000 * MSEC_TO_NS;
@@ -346,7 +347,7 @@ int run(struct vm_state *vm) {
 void load_binary_file(struct vm_state *vm, FILE *file) {
     long offset=0;
     char *cmem = (char *)vm->mem;
-    
+
     int c;
     while((c = getc(file)) != EOF) {
         if(offset >= MEM_SIZE * WORD_SIZE) {
@@ -387,7 +388,7 @@ void run_default_program() {
 //returns return value
 int run_binary(char *fname) {
     //arg 0 is script name, arg 1 is 'bin'
-    
+
     FILE *binfile;
     if(strcmp(fname, "-") == 0) {
         binfile = stdin;
@@ -412,7 +413,7 @@ int run_binary(char *fname) {
 
         for (int i = 0; i < len; i++) {
             int curr_addr = addr + i;
-            fprintf(stderr, "--  %04hx: %04hx (-%04hx)\n", 
+            fprintf(stderr, "--  %04hx: %04hx (-%04hx)\n",
                             curr_addr, global_vm.mem[curr_addr], -global_vm.mem[curr_addr]);
         }
     }
@@ -441,14 +442,14 @@ int parse_hex(char *str, int *result) {
     if (str[0] == '\0') { return 0; }
     char *endptr;
     *result = strtol(str, &endptr, 16);
-    
+
     // endptr now is how much of the string was parsed
     // success if whole string was valid number, so endptr == '\0'
     return *endptr == '\0';
 }
 
 // Arg Parsing stuff
-// options 
+// options
 
 int main(int argc, char *argv[]) {
 
@@ -460,9 +461,9 @@ int main(int argc, char *argv[]) {
     for(; read_i < argc; read_i++) {
 
         //copy this arg down to account for removed args
-        argv[read_i - shift_amount] = argv[read_i]; 
+        argv[read_i - shift_amount] = argv[read_i];
         //printf("Arg %d: %s\n", read_i, argv[read_i]);
-        
+
         //long opts
         char *curr_arg = argv[read_i];
         if( curr_arg[0] == '-' && curr_arg[1] == '-') {
@@ -522,11 +523,11 @@ int main(int argc, char *argv[]) {
 
     // ================ PARSE POSITIONAL FLAGS
     if(argc == 1) {
-        print_usage(); 
+        print_usage();
         exit(1);
     } else if (argc >= 3) {
         fprintf(stderr, "ERROR: expected at most 1 arg\n");
-        print_usage(); 
+        print_usage();
         exit(1);
 
     } else { //exactly 1 arg
