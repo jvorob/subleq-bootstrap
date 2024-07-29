@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <err.h>
+#include <time.h>
 
 #include "shared.h"
 #include "hex.h"
@@ -304,6 +305,14 @@ int run(struct vm_state *vm) {
     int retval;
     do {
         retval = step(vm);
+
+        // Drop speed to 10 MHz, sleep for 10 us every 100 ops
+        // Drop speed to 100 MHz, sleep for 10 us every 1000 ops
+        if (vm->num_cycles % 1000 == 0) {
+            const struct timespec ts = { .tv_nsec=10000 };
+            nanosleep(&ts, NULL);
+        }
+
     } while (retval == 0);
 
     //halted, get A operand of last instrucc
