@@ -339,6 +339,16 @@ SILENT
 
 : ? ( addr -- ) @ . ;
 
+DECIMAL
+: TOP4EMIT ( n -- [ prints top nibble] ) 12 U>> DIGASCII EMIT ;
+: XU.4 ( n -- [prints n properly, in hex] )
+    DUP TOP4EMIT 4 <<
+    DUP TOP4EMIT 4 <<
+    DUP TOP4EMIT 4 <<
+    TOP4EMIT ;
+: X. XU.4 SPACE ;
+
+
 ( ==========  STACK SHENANIGANS  ========= )
 
 ( ACESSING NEAR TOS: )

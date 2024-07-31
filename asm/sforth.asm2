@@ -1382,8 +1382,8 @@ _divmod_loop2:
     # NOTE: if W<=0, exit
     #          W can't be negative, since we have rightshifted it at least once
     #          therefore we exit once it hits 0
-    T T; alu_A alu_A; W T; T alu_A; W W; T T; alu_ars T; T W _divmod_exit
-    T T; alu_A alu_A; Y T; T alu_A; Y Y;      alu_ars Z; Z Y;
+    T T; alu_A alu_A; W T; T alu_A; W W; T T; alu_rs T; T W _divmod_exit
+    T T; alu_A alu_A; Y T; T alu_A; Y Y;      alu_rs Z; Z Y;
     Z Z _divmod_loop2
 
 
