@@ -1222,15 +1222,18 @@ DECIMAL
     RS0  ( rsp rs0 )
     RSDUMP ;
 
+HEX
 : .DS ( -- show the data stack a bit )
-    BASE @ HEX
+    SP@  ( sp )
+    BASE @ HEX SWAP ( oldbase, sp )
     STR" ====== SP: " TELL
-        SP@ . NL
-    SP@ 10 -
+        DUP . NL
+    10 - ( oldbase sp-0x10 )
     DS0 ( sp-0x10, DS0 )
-    OVER - ( sp-0x1, len_to_DS0 )
+    OVER - ( sp-0x10, len_to_DS0 )
     HEXDUMP ( show a bit on either side )
     BASE ! ;
+DECIMAL
 
 ( === install new exception handler === )
 
