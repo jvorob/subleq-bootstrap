@@ -483,6 +483,12 @@ DECIMAL
     OVER !  ( strp )
     ; ( return strp )
 
+: TEMPSTR" ( -- strp ; quotes a string, write into dict, but doesn't enclose )
+    ( useful at command line )
+    STR", ( strp ; read into dict )
+    DUP DP ! ( reset DP to not include string )
+    ; ( -- strp )
+
 : STR" ( -- ; quotes a string, encloses in word as a literal )
     ( IMMED_ONLY )
     LW_LITSTR ,
@@ -766,6 +772,149 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     ;
 : [DEBUG] TAILCALL DEBUG ; IMMEDIATE
 
+
+( ==========  Arithmetic Test cases  ========= )
+: TRUE 1 ;
+: FALSE 0 ;
+: EXPECT" ( a expected [ reads "errstr" from input ] -- )
+    ( if a and b differs, prints error string, halts )
+    TEMPSTR" -ROT ( strp a b )
+    2DUP <> IF ( strp a b; if values differ from expected )
+        ( f"ERROR ({errstr}), EXPECTED {a], GOT {b}" )
+        STR" ERROR (" TELL
+        ROT TELL ( ; print strp )
+        STR" ): EXPECTED " TELL
+        ( a exp )
+        .  ( a; print exp)
+        STR" , GOT " TELL
+        . ( ; print a )
+        NL
+
+        ( HANDLE_ERR )
+    ELSE
+        2DROP DROP ( -- )
+    THEN ;
+
+: TF ( 1/0 -- [emits T or F] ) IF C' T EMIT ELSE C' F EMIT THEN ;
+: BNOT ( a -- !a ) 1 XOR ; ( negate a boolean )
+: U> SWAP U< ;
+: U>= U< BNOT ;
+: U<= SWAP U< BNOT ;
+
+
+: USHOW ( a b -- )
+    ( tries all permutations of comparison using U< )
+    STR" UNSIGNED: a<b b<a a<a b<b: " TELL
+    ( a b )
+    2DUP U< TF
+    2DUP SWAP U< TF
+    ( a b ) OVER DUP U< TF
+    ( a b ) DUP U< TF ( a )
+    DROP ;
+
+: TESTFAIL ( a b -- [prints failing case, errs out] )
+    STR" TEST FAIL: (" TELL
+        2DUP SWAP X. X. STR" -- ): " TELL
+    ( a b ) USHOW NL
+    HANDLE_ERR ;
+
+: TEST< ( a b -- [ tests all signed comparisons ] )
+    2DUP <  0= IF 1 . TESTFAIL THEN
+    2DUP >     IF 2 . TESTFAIL THEN
+    2DUP <= 0= IF 3 . TESTFAIL THEN
+    2DUP >=    IF 4 . TESTFAIL THEN
+    2DUP =     IF 5 . TESTFAIL THEN
+    2DUP <> 0= IF 6 . TESTFAIL THEN
+    2DROP ;
+: TESTU< ( a b -- [ tests all U comparisons ] )
+    2DUP U<  0= IF 7 .  TESTFAIL THEN
+    2DUP U>     IF 8 .  TESTFAIL THEN
+    2DUP U<= 0= IF 9 .  TESTFAIL THEN
+    2DUP U>=    IF 10 .  TESTFAIL THEN
+    2DUP =      IF 11 .  TESTFAIL THEN
+    2DUP <>  0= IF 12 .  TESTFAIL THEN
+    2DROP ;
+
+
+HEX
+( Signed comparisons: go by distance, so 7FFF<-7FFF, because delta is a-b = -2 )
+1 2 <       TRUE EXPECT" 1<2"
+7FFF 8000 < TRUE EXPECT" 7FFF<8000"
+7FFF 8001 < TRUE EXPECT" 7FFF > -7FFF"
+1  -1     > TRUE EXPECT" 1>-1"
+-2 -1     < TRUE EXPECT" -2<-1"
+-7FFF 2   > TRUE EXPECT" -7FFF>2"  ( wraps thru 0x8000, unsigned)
+-7FF0 2   < TRUE EXPECT" -7FF0<2"  ( wraps thru 0, signed )
+
+TEMPSTR" === TESTING 8000:\n" TELL
+8000 0<   TRUE  EXPECT" 8000 0<"
+8000 0<=  TRUE  EXPECT" 8000 0=<"
+8000 0>   FALSE EXPECT" 8000 0>"
+8000 0>=  FALSE EXPECT" 8000 0>="
+( note: 0x8000 is INT_MIN, does weird stuff when distance is exactly 0 )
+( FUCKY:
+8000 0 <  TRUE  EXPECT" 8000 0 <"   ( is FALSE )
+8000 0 <= TRUE  EXPECT" 8000 0 <="  ( is TRUE )
+8000 0 >  FALSE EXPECT" 8000 0 >"   ( is FALSE )
+8000 0 >= FALSE EXPECT" 8000 0 >="  ( is TRUE )
+)
+
+HEX
+TEMPSTR" === NEAR ASSERTS (signed+unsigned):\n" TELL
+( NEAR ASSERTS (all <, should work for both signed and unsigned) )
+0 1       2DUP TEST< TESTU<
+1 2       2DUP TEST< TESTU<
+7FFE 7FFF 2DUP TEST< TESTU<
+7FFF 8000 2DUP TEST< TESTU<
+8000 8001 2DUP TEST< TESTU<
+8001 8002 2DUP TEST< TESTU<
+FFFE FFFF 2DUP TEST< TESTU<
+
+( FAR COMPARISONS (unsigned only) )
+TEMPSTR" === FAR ASSERTS (U):\n" TELL
+1 FFFF TESTU<
+0 7FFF TESTU<
+0 8000 TESTU<
+0 8001 TESTU<
+1 8000 TESTU<
+1 8001 TESTU<
+8000 FFFF TESTU<
+
+
+( FAR COMPARISONS (signed only), all < )
+TEMPSTR" === FAR ASSERTS (signed):\n" TELL
+0     7FFF TEST<
+8001     0 TEST<
+8000    -1 TEST<
+-3000 3000 TEST<
+D000  4000 TEST<
+( FLIPPED, signed only )
+5000 -5000 TEST<
+6000  D000 TEST<
+1     8000 TEST<
+
+
+TEMPSTR" === TESTING other 0cmp\n" TELL
+0001 0<   FALSE EXPECT" 0001 0<"
+0001 0<=  FALSE EXPECT" 0001 0=<"
+0001 0>   TRUE  EXPECT" 0001 0>"
+0001 0>=  TRUE  EXPECT" 0001 0>="
+0000 0<   FALSE EXPECT" 0000 0<"
+0000 0<=  TRUE  EXPECT" 0000 0=<"
+0000 0>   FALSE EXPECT" 0000 0>"
+0000 0>=  TRUE  EXPECT" 0000 0>="
+-1 0<   TRUE  EXPECT" -1 0<"
+-1 0<=  TRUE  EXPECT" -1 0=<"
+-1 0>   FALSE EXPECT" -1 0>"
+-1 0>=  FALSE EXPECT" -1 0>="
+7FFF 0<   FALSE EXPECT" 7FFF 0<"
+7FFF 0<=  FALSE EXPECT" 7FFF 0=<"
+7FFF 0>   TRUE  EXPECT" 7FFF 0>"
+7FFF 0>=  TRUE  EXPECT" 7FFF 0>="
+DECIMAL
+
+
+FORGET' USHOW
 
 ( ================== INTROSPECTION/DISASSEMBLY  ====================== )
 HEX

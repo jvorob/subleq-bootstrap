@@ -1421,6 +1421,13 @@ _divmod_loop2:
 # ( BRANCH 0BRANCH )
 # LW_BRANCH LW_0BRANCH
 
+# Set TOS to 0/1, return to NEXT_cd
+_cmp_ret_f:
+    TOS TOS; Z Z NEXT_cd
+_cmp_ret_t:
+    TOS TOS; n1 TOS; Z Z NEXT_cd
+
+
 # NOTE: All comparisons fall through to their 0 versions, therefore their
 # headers are separate and point to the code bodies
 
@@ -1432,16 +1439,11 @@ _eq_wd: ? # ( a b  -  a==b?1:0)
 
     #TOS is b-a, fallthru to 0eq
 _0eq_cd:
-    Z TOS ?+3 # if     TOS <= 0, nextif
-    Z   Z ?+3 # else   TOS > 0, skip
-    TOS Z ?+6 # nextif TOS >= 0, so TOS == 0, so jmp to ==0
-    # >0 or <0
-        TOS TOS;
-        Z Z NEXT_cd
-    # ==0:
-        n1 TOS; #TOS = 1
-        Z Z NEXT_cd
-
+    Z  TOS ?+3 # if T <= 0; nextif
+    Z  Z   _cmp_ret_f # KNOW:>0, jmp GTZ
+    n1 TOS _cmp_ret_f # nextif T+1<=0 (KNOW:T<0, jmp LTZ):
+    # Know: TOS==0, return true
+    TOS TOS; n1 TOS; Z Z NEXT_cd # return 1
 
 
 _ne_hd: _eq_hd 0 2 "<>"
@@ -1452,36 +1454,120 @@ _ne_wd: ? # ( a b  -  a!=b?1:0)
 
     #TOS is b-a
 _0ne_cd:
-    Z TOS ?+3 # if     TOS <= 0, nextif
-    Z   Z ?+3 # else   TOS > 0, skip
-    TOS Z ?+9 # nextif TOS >= 0, so TOS == 0, so jmp to ==0
-    # >0 or <0
-        TOS TOS; n1 TOS; #TOS = 1
-        Z Z NEXT_cd
-    # ==0:
-        #TOS is already 0
-        Z Z NEXT_cd
+    Z  TOS ?+3 # if T <= 0; nextif
+    Z  Z   _cmp_ret_t # KNOW:>0, jmp GTZ
+    n1 TOS _cmp_ret_t # nextif T+1<=0 (KNOW:T<0, jmp LTZ):
+    # else, KNOW: TOS==0
+    TOS TOS NEXT_cd # return 0
 
+U_lt_hd: _ne_hd 0 2 "U<"
+U_lt_wd: ? # ( a b - a<b?1:0)
+    # Like <, except here, 1 < FFFF
+    # ### Pop NOS into X
+    X X; Y Y; T T;
+    ?+5 ?+4; NOSP_  ?+1; 0 T; # GADGET: @NEGNOS(Z)
+    i1 NOSP_; #shrink stack
+    T X; T Y; # X = a, Y=a
+    TOS Y ; # Y = a-b
 
+    # Q1 / Q2 will be 1 if a/b are NEGATIVE (<0)
+    Q1 Q1; Q2 Q2;
 
-_lt_hd: _ne_hd 0 1 "<"
+    # Check a<0
+    Z  X ?+3 # if a <= 0; nextif
+    Z  Z ?+9 # KNOW:>0, skip
+    n1 X ?+3 # nextif a+1<=0 (KNOW:a<0, jmp LTZ):
+    Z Z  ?+3 # KNOW: a==0, skip
+    n1 Q1;   # LTZ: a<0, Q1=TRUE
+
+    # Check b<0
+    Z  TOS ?+3 # if b <= 0; nextif
+    Z  Z   ?+9 # KNOW:>0, skip
+    n1 TOS ?+3 # nextif b+1<=0 (KNOW:b<0, jmp LTZ):
+    Z Z    ?+3 # KNOW: b==0, skip
+    n1 Q2;     # LTZ: b<0, Q2=TRUE
+
+    # NOW: check signs (Q1=0 means a is positive)
+    Z Q1  ?+6        # if Q1=0, skip
+
+    Z Q2  _cmp_ret_f # (Q1=1,a<0):  if Q2=0,b>=0 (a-, b+) so (a big, b sml) RETURN FALSE
+    Z Z   ?+6        #              else:   b<0  (a-, b-) so (a big, b big) continue
+
+    Z Q2  ?+3        # (Q1=0,a>=0): if Q2=0,b>=0 (a+, b+) so (a sml, b sml) continue
+    Z Z   _cmp_ret_t #              else:   b<0  (a+, b-) so (a sml, b big) RETURN TRUE
+                     #
+    # Signs match, do comparison
+    # Y = a-b, Y != 0x8000
+    # we want a<b, which is b>a, which is b-a>0
+    Y Z ?+3 # flip Y, b-a<=0: skip
+    Z Z _cmp_ret_t # else, b-a>0, a<b, TRUE
+
+    # ELSE:
+    Z Z _cmp_ret_f
+
+# ===================================================
+# ALTERNATIVELY:
+# Ignore 0x8000, do sign check, THEN check if difference = 0x8000
+# If so, we know it's exactly 0 and 0x8000, (since signs matched),
+# can just jump back into sign checks?
+
+    Z X   ?+6        # if a<= 0, skip
+    Z TOS _cmp_ret_f # (a>0):  if b<= 0: (a+, b-) so (a sml, b big) jump_ret TURE
+    Z Z   ?+6        #         else:     (a+, b+) so (a sml, b sml) continue
+
+    # Check signs ( NOTE: - means large (0x8000-FFFF), + means small)
+    # Also note, we want 0 to count as small, so shift things (+1)
+    #                 0    becomes 1,    >0,  small
+    #                 7FFE becomes 7FFF, >0,  small
+    #                 7FFF becomes 8000, <=0, big
+    #                 8000 becomes 8001, <=0, big
+    #                 FFFE becomes FFFF, <=0, big
+    #                 FFFF becomes 0,    <=0, big
+    n1 X; n1 TOS; # a++, b++
+
+    Z X   ?+6        # if a<= 0, skip
+    Z TOS _cmp_ret_f # (a>0):  if b<= 0: (a+, b-) so (a sml, b big) jump_ret TURE
+    Z Z   ?+6        #         else:     (a+, b+) so (a sml, b sml) continue
+
+    Z TOS ?+3        # (a<=0): if b<= 0: (a-, b-) so (a big, b big) continue
+    Z Z   _cmp_ret_t #         else:     (a-, b+) so (a big, b sml) jump_ret FALSE
+
+    # # Signs match: do b-a (TOS-=NOS)
+
+    #NOTE: we could have diff=0x8000, so can't tell from sign
+    # Check if difference is == 0x8000
+    # if it is, (originally 7FFF(>0) and FFFF(<=0), with shift 8000(<=0) and 0(<=0))
+    # sub 1 from a and b, redo the sign test, so they're guaranteed to be caught
+
+    X TOS;
+
+_lt_hd: U_lt_hd 0 1 "<"
 _lt_wd: ? # ( a b  -  a<b?1:0)
-    # ### Pop NOS, subtract from TOS
+    # Note: main alg is a-b < 0:
+    # However, this won't work if A and B are far apert
+    # (e.g. A=7000, B=-7000. Signed, A should be > B,
+    #  but this comparison takes the shorter direction, so
+    #  A-B = -2000 (A as 7000, B as 9000))
+    #  We'll call this a feature: this < works both signed
+    #  and unsigned, as long as A and B are within 0x8000 of each
+    #  other in whatever reference frame you're using
+
+    # ### Pop NOS, subtracting from TOS
     ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
     i1 NOSP_; #shrink stack
 
     #TOS is b-a
 _0gt_cd: # for 0-comparison, TOS is a-0, so is gt instead of lt
-
     # a<b iff b-a>0
-    Z TOS ?+3 # if     b-a <= 0, b<=a nextif
-    Z   Z ?+6 # else   b-a > 0 , b > a skip
-    # b <= a
-        TOS TOS; #TOS = 0
-        Z Z NEXT_cd
-    # b > a
-        TOS TOS; n1 TOS; #TOS = 1
-        Z Z NEXT_cd
+    Z TOS _cmp_ret_f # if     b-a <= 0, b<=a,  a>=b nextif
+    Z   Z _cmp_ret_t # else   b-a > 0 , b > a, a<b skip
+    # # b <= a
+    #     TOS TOS; #TOS = 0
+    #     Z Z NEXT_cd
+    # # b > a
+    #     TOS TOS; n1 TOS; #TOS = 1
+    #     Z Z NEXT_cd
+
 
 _ge_hd: _lt_hd 0 2 ">="
 _ge_wd: ? # ( a b  -  a>=b?1:0)
@@ -1493,8 +1579,8 @@ _ge_wd: ? # ( a b  -  a>=b?1:0)
 
 _0le_cd: # for 0-comparison, TOS is a-0, so is le instead of ge
     # a>=b iff b-a<=0
-    Z TOS ?+3 # if     b-a <= 0, b<=a nextif
-    Z   Z ?+9 # else   b-a > 0 , b > a skip
+    Z TOS _cmp_ret_t # if     b-a <= 0, b<=a, a>=b nextif
+    Z   Z _cmp_ret_f # else   b-a > 0 , b >a, a<b  skip
     # b <= a
         TOS TOS; n1 TOS; #TOS = 1
         Z Z NEXT_cd
@@ -1522,11 +1608,21 @@ _0le_wd: _0le_cd
 # Define in reference to the above (this is slower, but safer)
 _0ge_hd: _0le_hd 0 3 "0>="
 _0ge_wd: ?
-    T T; TOS T; T Z; TOS TOS; Z TOS; Z Z _0le_cd
+    # Can't just `NEG 0<=`, since 0x8000 doesn't negate
+    Z TOS ?+3     # If a <= 0, skip
+    Z Z _cmp_ret_t # else (a>0), TRUE
+    # -------- (a<=0) :
+    n1 TOS _cmp_ret_f  # a+1 <=0, thfr a < 0, FALSE
+    Z    Z _cmp_ret_t # else, a==0, is >=, TRUE
 
 _0lt_hd: _0ge_hd 0 2 "0<"
 _0lt_wd: ?
-    T T; TOS T; T Z; TOS TOS; Z TOS; Z Z _0gt_cd
+    # Can't just `NEG 0>`, since 0x8000 doesn't negate
+    Z TOS ?+3     # If a <= 0, skip
+    Z Z _cmp_ret_f # else (a>0), FALSE
+    # -------- (a<=0) :
+    n1 TOS _cmp_ret_t  # a+1 <=0, thfr a < 0, TRUE
+    Z    Z _cmp_ret_f # else, a==0, not <, FALSE
 
 _le_hd: _0lt_hd 0 2 "<="
 _le_wd: do_colon
@@ -1555,18 +1651,20 @@ _0BRANCH_wd: ? # If 0, jump BRANCH_cd
     T T; TOS T; #TOS in T(-)
 
     TOS TOS; Z TOS; #NOS+ into TOS
-
     Z Z;
-    Z T ?+3 #if T <= 0; goto nextif
-    Z Z ?+3 #else: T>0, no branch
-    T Z ?+6 #nextif T>=0 (T==0): jump to take_branch
 
-    #Else: no branch, step over offset
+    Z  T ?+3 # if T <= 0; nextif
+    Z  Z ?+6 # KNOW:>0, jmp GTZ
+    n1 T ?+3 # nextif T+1<=0 (KNOW:T<0, jmp LTZ):
+             # else KNOW: T==0
+    # T==0, take_branch
+    Z Z BRANCH_cd #(need extra op to clear Z)
+
+    #Else: T<>0, step over offset
     n1 NWA;
     Z Z NEXT_cd
 
     # take_branch:
-    Z Z BRANCH_cd #(need extra op to clear Z)
 
 # Add constants to capture BRANCH and 0BRANCH
 LW_BRANCH_hd: _gt_hd 0  9 "LW_BRANCH"
@@ -2600,7 +2698,7 @@ TEST_bd:
     #NOSP__wd EMIT_wd
     #RSP__wd EMIT_wd
 
-    #TEST_BRANCH_wd
+    TEST_BRANCH_wd
 
     #TEST_TOKEN_wd
     #TEST_FIND_wd
@@ -2611,7 +2709,7 @@ TEST_bd:
 
     #TEST_EXECUTE_wd
     #TEST_TAILCALL_wd
-    TEST_EXCEPTION_wd
+    #TEST_EXCEPTION_wd
 
     #INTERPRET_wd
 
@@ -2778,6 +2876,29 @@ Z Z halt0
 # SUBJGE(X,Y,LOC): X Y LOC;            #Y -= X
 # SUBJLE(X,Y,LOC): T T; X Y; Y T LOC;  #Y -= X
 #
+# Safe Comparisons: (avoids 0x8000 looking like 0)
+#
+# ### Full compare: check LTZ, GTZ, EQZ, restore variable
+#    Z  T ?+3 #if T <= 0; goto nextif
+#    Z  Z ?+9 # KNOW:>0, jmp GTZ
+#    n1 T ?+3 # nextif T+1<=0 (then: KNOW:T<0):
+#             # KNOW: T==0
+#    i1 T XXX # EQZ: i1 T XXX ( undo +, always jumps)
+#    i1 T XXX # LTZ: i1 T (undo +, always jumps)
+#    Z  Z XXX # GTZ: Z Z (+)
+#
+# ### Quick compare (EQ/NEZ, clobber variable)
+#    Z  T ?+3 # if T <= 0; nextif
+#    Z  Z ?+6 # KNOW:>0, jmp GTZ
+#    n1 T ?+3 # nextif T+1<=0 (KNOW:T<0, jmp LTZ):
+#    Z Z EQZ  # KNOW: T==0
+#    # ELSE: T<>0
+#    ...
+# ### Quick compare, jump to label (EQ/NEZ, clobber variable)
+#    Z  T ?+3 # if T <= 0; nextif
+#    Z  Z GTZ # KNOW:>0, jmp GTZ
+#    n1 T LTZ # nextif T+1<=0 (KNOW:T<0, jmp LTZ):
+#    Z Z EQZ  # KNOW: T==0
 #
 # JGE(X,Y,LOC): T T; Y Z; Z T; Z Z; X T LOC;
 # JLE: mirror
