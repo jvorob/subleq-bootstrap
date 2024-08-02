@@ -1254,11 +1254,14 @@ _times_loop:
 _divby0: # jump to exception
     Z Z except5
 
-_divmod_exit: # We jump here once X==0
+U_divmod_ret_0: # Return quotient 0 remainder 0
+    W W; X X; V V; P1 P1;
+U_divmod_exit: # We jump here once X==0
     # W = 0
     # X = remainder
     # V(-) = quotient
     # Y would be divisor>>1, but we exited early
+    # P1 holds sign (nonzero means -)
 
 
     # TODO: if P1, flip V, X
@@ -1274,8 +1277,9 @@ _divmod_exit: # We jump here once X==0
     #Quotient in V(-), Remainder in X(+)
 
     Z P1 ?+3 # If P1=0 (flip)
-    Z Z ?+0F # else, skip
-        T T; V Z; Z T; V V; T V; Z Z;  # Flip V
+    Z Z ?+24 # else, skip
+        T T; V Z; Z T; V V; T V; Z Z;  # Flip V (quotient)
+        T T; X Z; Z T; X X; T X; Z Z;  # Flip X (remainder )
 
     # ### Push quotient (in V(-))  into NOS
     n1 NOSP_; #grow stack
@@ -1295,8 +1299,8 @@ _divmod_exit: # We jump here once X==0
         Z Z NEXT_cd
 
 # ================ DIVMOD ENTRY POINT
-_divmod_hd: _times_hd 0 4 "/MOD"
-_divmod_wd: ? # (x y - x/y x%y )
+U_divmod_hd: _times_hd 0 5 "U/MOD"
+U_divmod_wd: ? # (x y - x/y x%y )
 
     alu_B alu_B; n1 alu_B; # alu_B is always 1
 
@@ -1326,12 +1330,23 @@ _divmod_wd: ? # (x y - x/y x%y )
     i1 NOSP_; #shrink stack (SP_ goes more negative)
 
 
-    # Flip X to positive, flip sign bit
-    X Z ?+0F #if X >= 0 skip (5ops, 15words=0x0F)
-    # else: X < 0
-        X X; T T; Z T; T X; n1 P1; #P1++
-    #endif
-    Z Z ;
+
+    ### TODO TEMP DEBUG: leave X (n, dividend) as -, we're going to do unsigned div )
+    # ==== OLD CODE: ( flip dividend positive, signed divide )
+    # # Flip X to positive, flip sign bit
+    # X Z ?+0F #if X >= 0 skip (5ops, 15words=0x0F)
+    # # else: X < 0
+    #     X X; T T; Z T; T X; n1 P1; #P1++
+    # #endif
+    # Z Z ;
+
+    # === NEW CODE: If X == 0: return 0, else continue ( no flip)
+    T T;
+    X  T ?+3 # if T <= 0; nextif
+    Z  Z ?+6 # KNOW:>0, jmp GTZ
+    n1 T ?+3 # nextif T+1<=0 (KNOW:T<0, jmp LTZ):
+    Z Z U_divmod_ret_0  # KNOW: T==0==X, return 0,0
+
 
 
 
@@ -1347,16 +1362,25 @@ _divmod_wd: ? # (x y - x/y x%y )
     #  X = 0b0101, Y = 0b0100, shifts up
     #              Y = 0b1000, match, difference is 4, 0b0100
     #
-_divmod_loop1:
-    # if Y >= X, break
-    Q1 Q1; Y Q1; # temp: Q1 = -Y
-    T T; X T; Q1 T; # T = Y-X
-    T Z ?+1B # if X-Y<=0 (Y>=X), break
+
+    #NOTE: want to handle case where x < 0 (i.e. x in 0x8000-0xFFFF)
+
+U_divmod_loop1:
+    # OLD LOGIC: loop until Y(div) >= X(n) ( checked as X-Y<=0 ), break
+    # OLD LOGIC breaks if e.g. Y is negative,
+    #Q1 Q1; Y Q1; # temp: Q1 = -Y
+    #T T; X T; Q1 T; # T = Y-X
+    #T Z ?+1B # if X-Y<=0 (Y>=X), break
+
+    # NEW Logic: loop until Y(div) has high bit set (i.e.)<= 0
+    # NOTE: we must have already check for Y=0 above
+    Q1 Q1; Y Q1; # Temp, q1=-Y (needed for doubling)
+    Z Y ?+1b # If Y<=0, break
 
 
     #else: double Y, double mult
     Z Z; Y Y; Q1 Y; Q1 Y; #12 words
-    W Z; W W; Z W; Z W; Z Z _divmod_loop1 # 15 words, total 27 = 0x1B
+    W Z; W W; Z W; Z W; Z Z U_divmod_loop1 # 15 words, total 27 = 0x1B
 
     # endloop
     Z Z;
@@ -1366,7 +1390,12 @@ _divmod_loop1:
 
     alu_B alu_B; n1 alu_B; # Always shifting by 1
 
-_divmod_loop2:
+    # NOTE: if X > 0 (i.e. high bit not set,)
+    # we need to skip an iteration (i.e 1>> Y, mult)
+    Z X ?+3 # If X<=0, start normally
+    Z Z ?+18 # Else, X>0: skip an iteration
+
+U_divmod_loop2:
     #if Y <= X (Y-X <= 0)
     #  X -= Y
     #  Quot+= mult
@@ -1382,9 +1411,9 @@ _divmod_loop2:
     # NOTE: if W<=0, exit
     #          W can't be negative, since we have rightshifted it at least once
     #          therefore we exit once it hits 0
-    T T; alu_A alu_A; W T; T alu_A; W W; T T; alu_rs T; T W _divmod_exit
+    T T; alu_A alu_A; W T; T alu_A; W W; T T; alu_rs T; T W U_divmod_exit
     T T; alu_A alu_A; Y T; T alu_A; Y Y;      alu_rs Z; Z Y;
-    Z Z _divmod_loop2
+    Z Z U_divmod_loop2
 
 
 
@@ -1405,10 +1434,18 @@ _divmod_loop2:
 #==== if X == 0, exit
     Z X ?+3         # if     X<= 0, nextif
     Z Z ?+3         # else   X > 0, skip
-    X Z _divmod_exit # nextif X >= 0, so x == 0, so exit
+    X Z U_divmod_exit # nextif X >= 0, so x == 0, so exit
                     # else   x <> 0
-    Z Z _divmod_loop2
+    Z Z U_divmod_loop2
 # else, jump loop:
+
+
+
+# _divmod_hd: U_divmod_hd 0 4 "/MOD"
+# _divmod_wd: do_colon # ( a b -- )
+#     # Does signed division: if a < 0: negates A, does divmod, then swaps back
+#     OVER 0<
+#     HALT1_wd
 
 # ================================================================
 #
@@ -1431,7 +1468,7 @@ _cmp_ret_t:
 # NOTE: All comparisons fall through to their 0 versions, therefore their
 # headers are separate and point to the code bodies
 
-_eq_hd: _divmod_hd 0 1 "="
+_eq_hd: U_divmod_hd 0 1 "="
 _eq_wd: ? # ( a b  -  a==b?1:0)
     # ### Pop NOS, subtract from TOS
     ?+5 ?+4; NOSP_  ?+1; 0 TOS; # GADGET: @NEGNOS(Z)
@@ -2487,7 +2524,7 @@ TEST_VARS_wd: do_colon # should emit: 0A 10 0A 0A 20
     EXIT_wd
 
 TEST_MATH_wd: do_colon #Should emit 23 00 03 04 46 fa   20
-                       #     then:  01 05 01 05 01 05 00 02 20 2A
+                       #     then:  01 05 01 05 01 05 00 02 __  20 2A 00 80
     LIT_wd 5 LIT_wd 7 _times_wd EMIT_wd # 5*7=35 (0x23)
     LIT_wd 0 LIT_wd 3 _times_wd EMIT_wd # 0*3=0
     LIT_wd 3 LIT_wd 1 _times_wd EMIT_wd # 3*1=3
@@ -2497,17 +2534,22 @@ TEST_MATH_wd: do_colon #Should emit 23 00 03 04 46 fa   20
 
     SPACE_wd
 
-    LIT_wd 10 LIT_wd 3 _divmod_wd EMIT_wd EMIT_wd #dec16 3 /MOD
-    LIT_wd 0FFF0 LIT_wd 0FFFD _divmod_wd EMIT_wd EMIT_wd #-dec16 -3 /MOD
+    LIT_wd 10 LIT_wd 3 U_divmod_wd EMIT_wd EMIT_wd #dec16 3 /MOD
+    LIT_wd 0FFF0 LIT_wd 0FFFD U_divmod_wd EMIT_wd EMIT_wd #-dec16 -3 /MOD
 
-    LIT_wd 0FFF0 LIT_wd 3 _divmod_wd #-dec16 3 /MOD , should be (-5div -1rem)
+    LIT_wd 0FFF0 LIT_wd 3 U_divmod_wd #-dec16 3 /MOD , should be (-5div -1rem)
     NEG_wd EMIT_wd NEG_wd EMIT_wd #should emit 01 05
-    LIT_wd 0A LIT_wd 5 _divmod_wd EMIT_wd EMIT_wd #0A 5 /MOD (exp: emit rem0 quot2)
+    LIT_wd 0A LIT_wd 5 U_divmod_wd EMIT_wd EMIT_wd #0A 5 /MOD (exp: emit rem0 quot2)
 
     SPACE_wd
     LIT_wd 30 LIT_wd 2 _minus_wd LIT_wd 8 _minus_wd #dec 48 -2 -8 = dec38
     _1plus_wd _1plus_wd LIT_wd 2 _plus_wd # dec38 +1 +1 +2 = decimal42 = 0x2A '*'
     EMIT_wd
+
+
+    SPACE_wd
+    LIT_wd 0100 LIT_wd 2 U_divmod_wd EMIT_wd EMIT_wd  #should emit 0x00 0x80
+    HALTN_wd
 
     EXIT_wd
 
@@ -2693,12 +2735,12 @@ TEST_bd:
     #TEST_STACK2_wd SPACE_wd
     #TEST_RETSTACK_wd SPACE_wd
     #TEST_VARS_wd
-    #TEST_MATH_wd
+    TEST_MATH_wd
 
     #NOSP__wd EMIT_wd
     #RSP__wd EMIT_wd
 
-    TEST_BRANCH_wd
+    #TEST_BRANCH_wd
 
     #TEST_TOKEN_wd
     #TEST_FIND_wd

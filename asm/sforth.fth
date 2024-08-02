@@ -63,10 +63,11 @@ SILENT
 ( Stack helpers )
 : NIP ( a b - b ) SWAP DROP ;
 
-: / ( a b - a/b )
-    /MOD ( a/b a%b ) DROP ;
-: MOD ( a b - a%b )
-    /MOD ( a/b a%b ) NIP ;
+( currently these seem to work for small positive divisors)
+: U/ ( a b - a/b )
+    U/MOD ( a/b a%b ) DROP ;
+: UMOD ( a b - a%b )
+    U/MOD ( a/b a%b ) NIP ;
 
 : HEX 16 BASE ! ;
 : DECIMAL 10 BASE ! ;
@@ -293,7 +294,7 @@ SILENT
 
     -1 SWAP  ( push -1 as sentinel )
     BEGIN ( width -1 [..digits] rest )
-        BASE @ /MOD ( -1 [digits] rest digit )
+        BASE @ U/MOD ( -1 [digits] rest digit )
         ( In the absence of an unsigned divmod, manually unsign the digits? )
         ( e.g. in hex, remainder of -1 is )
         DUP 0< IF BASE @ + THEN
@@ -801,8 +802,11 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 : U>= U< BNOT ;
 : U<= SWAP U< BNOT ;
 
+( ==========  Arithmetic Test cases  ========= )
+: TESTCASE_START ; ( used to forget all temp testing functions )
 
-: USHOW ( a b -- )
+
+: U<SHOW ( a b -- )
     ( tries all permutations of comparison using U< )
     STR" UNSIGNED: a<b b<a a<a b<b: " TELL
     ( a b )
@@ -815,7 +819,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 : TESTFAIL ( a b -- [prints failing case, errs out] )
     STR" TEST FAIL: (" TELL
         2DUP SWAP X. X. STR" -- ): " TELL
-    ( a b ) USHOW NL
+    ( a b ) U<SHOW NL
     HANDLE_ERR ;
 
 : TEST< ( a b -- [ tests all signed comparisons ] )
@@ -914,8 +918,46 @@ TEMPSTR" === TESTING other 0cmp\n" TELL
 DECIMAL
 
 
-FORGET' USHOW
+FORGET' TESTCASE_START ( forget all our temporary testing words )
 
+
+( ( =============== SIGNED DIVISION =============== )
+( currently not working right: unsigned division seems to work correctly with positive
+  divisors, but just negating stuff isn't working right anymore. Need to sit down and solve
+  this properly at some point, but is not top priority )
+( old solution was to flip both dividend and divisor positive, then flip back later?
+  however this gave -quotient and -remainder. Might have been better to do -quotient and positive remainder?
+  Need to think about proper conventions for negatives)
+
+: /MOD ( a b -- )
+    OVER 0>= [ LW_0BRANCH , 3 , ] ( if a positive, just do unsigned divide )
+        U/MOD EXIT
+    ( else )
+    SWAP NEG SWAP U/MOD ( -quot, rem )
+    SWAP NEG SWAP NEG ( negate quotient and remainder??? ) ;
+
+: / ( a b - a/b )
+    /MOD ( a/b a%b ) DROP ;
+: MOD ( a b - a%b )
+    /MOD ( a/b a%b ) NIP ;
+
+)
+0 VARIABLE V ( divisor )
+: /SHOW ( n v -- )
+    STR" ( " TELL
+    ( n v ) 2DUP SWAP X. X. STR" /MOD -- ) " TELL
+    DUP V !
+    ( ( n v ) /MOD ) ( TODO: DEBUG: SIGNED? )
+    ( n v ) U/MOD
+    ( q r ) 2DUP SWAP  ( q r r q )
+        C' Q EMIT X.
+        C' R EMIT X.
+    ( q r ) STR" Undoing: " TELL
+    SWAP V @ * ( r q*v ) DUP X.
+    SWAP ( q*v r ) STR" + " TELL DUP X.
+    STR" = " TELL
+    ( q*v r ) + X.
+    ;
 ( ================== INTROSPECTION/DISASSEMBLY  ====================== )
 HEX
 
