@@ -1794,7 +1794,6 @@ _plusLOOP_cd:
     i1 NOSP_; #shrink stack (SP_ goes more negative)
     Z Z;
 
-
     # fetch -(I) into X
     X X; ?+5 ?+4;        RSP_   ?+1; 0  X;  # X = -*(RSP)
 
@@ -3037,15 +3036,6 @@ START_cd: # Starts executing here with no state
     # Init stack canary at TOS (will be written to DS0+1)
     TOS TOS; forth_canary_val Z; Z TOS; Z Z; #push CAFE to TOS as a marker?
 
-    # ==== Init consts
-    # TODO: should these go in forth_init:, not START?
-    # (we'd assemble these directly but we don't
-    #  have forward labels in asm2)
-    DP_val          DP_val         ; forth_init_dp_val     Z; Z DP_val;     Z Z;
-    LATEST_val      LATEST_val     ; forth_init_latest_val Z; Z LATEST_val; Z Z;
-    restart_wd_addr restart_wd_addr; forth_init_restart_wd Z; Z restart_wd_addr; Z Z;
-    e_handler_val   e_handler_val  ; forth_init_e_handler  Z; Z e_handler_val; Z Z;
-
 
     # ==== START EXECUTING RESTART
     # ( it will initialize return stack and other vars)
@@ -3074,6 +3064,15 @@ Z Z halt0
 
     # write 0d to entry so that we halt if we start executing at 0
     entry entry; nD entry;
+
+    # ==== Init consts
+    # (we'd assemble these directly but we don't
+    #  have forward labels in asm2)
+    DP_val          DP_val         ; forth_init_dp_val     Z; Z DP_val;     Z Z;
+    LATEST_val      LATEST_val     ; forth_init_latest_val Z; Z LATEST_val; Z Z;
+    restart_wd_addr restart_wd_addr; forth_init_restart_wd Z; Z restart_wd_addr; Z Z;
+    e_handler_val   e_handler_val  ; forth_init_e_handler  Z; Z e_handler_val; Z Z;
+
 
     Z Z START_cd # Jump to START
 
