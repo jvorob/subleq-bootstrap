@@ -791,7 +791,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
         . ( ; print a )
         NL
 
-        ( HANDLE_ERR )
+        HANDLE_ERR
     ELSE
         2DROP DROP ( -- )
     THEN ;
@@ -1323,6 +1323,50 @@ DECIMAL
     STR"  Latest word: " TELL
         LATEST @ >WNA TELL NL
     ;
+
+( ============ DO/LOOP ============ )
+
+( Something like the following should print from 0..=9
+    10 0 DO I> . LOOP
+  `DO` pushes to .RS: RA end I -r-
+  n +LOOP \ increments by a specific amount
+  n -LOOP \ goes down
+  BREAK \ sets loop counter to end, will break next time
+)
+: DO
+    LW_DO , ( enclose lw_do )
+    DP @ ( stash loopback label )
+    ; IMMEDIATE
+
+
+( for all 3: stack is ( loopstart -- ) )
+: LOOP 1 #, LW_+LOOP ,
+    DP @ - , ( offset to label: label-here )
+    ; IMMEDIATE
+: +LOOP LW_+LOOP ,
+    DP @ - , ( offset to label: label-here )
+    ; IMMEDIATE
+: -LOOP LW_-LOOP ,
+    DP @ - , ( offset to label: label-here )
+    ; IMMEDIATE
+
+( : I> R@ ; )
+: J> ( RS: jend j iend i ra -- ) 3 RPICK ;
+: K> 5 RPICK ;
+
+: LEAVE ( sets I = end )
+    ( RS: end I ra ) R>
+    R> DROP ( RS: end )
+    R@ >R >R ( RS: end end ra ) ;
+
+( let's test it by summing 0..2 * 10..12 )
+( should be 0+0+10+11+20+22 = 63)
+: TEST
+    0 ( sum ) 3 0 DO 12 10 DO
+        I> J> * +
+    LOOP ( C' : EMIT DUP . CR ) LOOP ;
+TEST 63 EXPECT" 2-dim loop"
+FORGET' TEST
 
 ( ==== ASSERTS? NOT WORKING )
 

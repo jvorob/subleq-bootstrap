@@ -502,7 +502,7 @@ TAILCALL_wd: ? #
 #                  STACK MANIPULATION WORDS
 #
 # ================================================================
-# >R R>
+# >R R> R@ RPICK
 # NOSP@ NOSP!
 # DUP DROP 2DROP SWAP OVER 2SWAP ROT -ROT
 
@@ -546,8 +546,47 @@ _fromR_cd:
 
     Z Z NEXT_cd
 
+R_at_hd: _fromR_hd 0 2 "R@"
+R_at_wd: ? #  from return stack to data stack
+R_at_cd:
+    # GADGET: PUSH TOS
+    TOS Z ;
+    n1 NOSP_; #grow stack (NOSP_ goes closer to 0)
+    ?+11 ?+10; NOSP_ ?+D; #
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; Z   0; # .
+    #(Z is dirty)
 
-DUP_hd: _fromR_hd 0 3 "DUP"
+    # Fetch RSP_ into TOS
+    Z Z; ?+5 ?+4; RSP_ ?+1; 0 Z; # GADGET:FETCH_NEG
+    TOS TOS; Z TOS;
+
+    Z Z NEXT_cd
+
+# for DS: 0 PICK is equivalent to DUP, 1 PICK is OVER
+# for RS: the arg isn't on the RS, but we still want to mirror the semantics,
+# so 0 RPICK == R@
+RPICK_hd: R_at_hd 0 5 "RPICK"
+RPICK_wd: ? #  from return stack to data stack
+RPICK_cd:
+    # we want to shrink RS by amount equal to TOS
+    # so RSP += TOS
+    # so RSP_ -= TOS
+
+    TOS RSP_ ; # shrink RS by amt in TOS
+    # fetch RSP_ into T(-)
+    T T; ?+5 ?+4;        RSP_   ?+1; 0  T;  # T = -*(RSP)
+
+    TOS Z; Z RSP_ ; # grow RS by TOS to restore
+
+    # Flip picked val into TOS
+    TOS TOS; T TOS;
+
+    Z Z NEXT_cd
+
+
+DUP_hd: RPICK_hd 0 3 "DUP"
 DUP_wd: ?
 DUP_cd:
     # GADGET: PUSH TOS
@@ -1701,14 +1740,159 @@ _0BRANCH_wd: ? # If 0, jump BRANCH_cd
     n1 NWA;
     Z Z NEXT_cd
 
-    # take_branch:
+
+DO_wd: ?
+DO_cd:
+# data stack looks like : ( end I -- )
+# move both to return stack ( RS: end I -- )
+    n2 RSP_ ; #grow return stack by 2 ( need to swap order )
+
+    T T; TOS T;
+    # GADGET: POKE +TOS to RSP
+    ?+11 ?+10; RSP_ ?+D; # *(RSP) = -X
+    ?+C  ?+B ; RSP_ ?+8; # .
+    ?+9  ?+8 ; RSP_ ?+5; # .
+    0    0   ; T   0; # .
+
+    ### Pop NOS into T(-)
+    T T;
+    ?+5 ?+4; NOSP_  ?+1; 0 T; # GADGET: @NEGNOS(T)
+    i1 NOSP_; #shrink stack
+
+
+    # ( now need to put NOS into swapped place on RS )
+    i1 RSP_ ; # shrink stack temporarily
+
+    # GADGET: POKE T(-) to RSP
+    ?+11 ?+10; RSP_ ?+D; # *(RSP) = -X
+    ?+C  ?+B ; RSP_ ?+8; # .
+    ?+9  ?+8 ; RSP_ ?+5; # .
+    0    0   ; T   0; # .
+
+    n1 RSP_ ; #grow return stack again to enclose both values
+
+    ### Pop 3OS into TOS
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # GADGET: -@NOSP(Z-)
+    TOS TOS; Z TOS; # copy NOS into TOS(+)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+
+    Z Z NEXT_cd
+
+
+
+_plusLOOP_wd: ?
+_plusLOOP_cd:
+    # DS: ( inc -- )
+    # RS: ( end I -- [end I+inc] or [] )
+
+    T T; TOS T; # add inc to I ( via T(-))
+    ?+6  ?+5 ; RSP_ ?+2 ; T 0; # GADGET: POKESUB, *(RSP) -= T
+
+    # Pop NOS into TOS
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # pop NOS into Z(-)
+    TOS TOS; Z TOS; # copy NOS into TOS(+)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+    Z Z;
+
+
+    # fetch -(I) into X
+    X X; ?+5 ?+4;        RSP_   ?+1; 0  X;  # X = -*(RSP)
+
+    # fetch -(end) into T
+    i1 RSP_ ; # shrink stack to scoot back to `end`
+    T T; ?+5 ?+4;        RSP_   ?+1; 0  T;  # T = -*(RSP)
+    n1 RSP_ ; # grow stack to where it should be
+
+    # WE WANT:
+    #   I end < IF BRANCH ELSE endloop THEN
+    # so:
+    #   I end < IF BRANCH
+    #   I end >= IF endloop
+    #   end I <= IF endloop
+    #   end I - 0<= IF endloop
+
+    # calc `(end-I)`
+    # if (end-I) LEQZ, === I >= end, break out of loop
+    T X ?+3 #
+        Z Z BRANCH_cd # else: continue
+
+    # I >= end: break out
+    n1 NWA ; # step over offset
+    i2 RSP_ ; # drop end and I
+    Z Z NEXT_cd
+
+_minusLOOP_wd: ?
+_minusLOOP_cd:
+    # same as +LOOP: except we subtract TOS, and, exit when I <= end
+
+    # SUB inc from I
+    ?+6  ?+5 ; RSP_ ?+2 ; TOS 0; # GADGET: POKESUB, *(RSP) -= T
+
+    # Pop NOS into TOS
+    ?+5 ?+4; NOSP_  ?+1; 0 Z; # pop NOS into Z(-)
+    TOS TOS; Z TOS; # copy NOS into TOS(+)
+    i1 NOSP_; #shrink stack (SP_ goes more negative)
+    Z Z;
+
+    # fetch -(I) into X
+    X X; ?+5 ?+4;        RSP_   ?+1; 0  X;  # X = -*(RSP)
+
+    # fetch -(end) into T
+    i1 RSP_ ; # shrink stack to scoot back to `end`
+    T T; ?+5 ?+4;        RSP_   ?+1; 0  T;  # T = -*(RSP)
+    n1 RSP_ ; # grow stack to where it should be
+
+    # WE WANT:
+    #   I end > IF BRANCH ELSE endloop THEN
+    #   I end <= IF endloop
+    #   I end - 0<= IF endloop
+
+    # calc `(I-end)`
+    # if (I-end) LEQZ, === I <= end, break out of loop
+    X T ?+3 #
+        Z Z BRANCH_cd # else: continue
+
+    # I <= end: break out
+    n1 NWA ; # step over offset
+    i2 RSP_ ; # drop end and I
+    Z Z NEXT_cd
+
+
+I_from_hd: _gt_hd 0  2 "I>"
+I_from_wd: R_at_cd
+# I is at the top of RS, so R@ is sufficient
+
+J_from_hd: I_from_hd 0  2 "J>"
+J_from_wd: ?
+    # `2 rpick`, but let's be a little fancier and specialize it explicitly
+
+    ### Push TOS into NOS
+    T T; TOS T;
+    n1 NOSP_; #grow stack
+    ?+11 ?+10; NOSP_ ?+D; # GADGET: NEG!NOS(T)
+    ?+C  ?+B ; NOSP_ ?+8; # .
+    ?+9  ?+8 ; NOSP_ ?+5; # .
+    0    0   ; T   0; # .
+
+    TOS TOS; n2 TOS; # TOS = 2
+    Z Z RPICK_cd
+
 
 # Add constants to capture BRANCH and 0BRANCH
-LW_BRANCH_hd: _gt_hd 0  9 "LW_BRANCH"
+LW_BRANCH_hd: J_from_hd 0  9 "LW_BRANCH"
 LW_BRANCH_wd: do_const BRANCH_wd
 
 LW_0BRANCH_hd: LW_BRANCH_hd 0 0A "LW_0BRANCH"
 LW_0BRANCH_wd: do_const _0BRANCH_wd
+
+LW_DO_hd: LW_0BRANCH_hd 0 05 "LW_DO"
+LW_DO_wd: do_const DO_wd
+
+LW_plusLOOP_hd: LW_DO_hd 0 08 "LW_+LOOP"
+LW_plusLOOP_wd: do_const _plusLOOP_wd
+
+LW_minusLOOP_hd: LW_plusLOOP_hd 0 08 "LW_-LOOP"
+LW_minusLOOP_wd: do_const _minusLOOP_wd
 
 # ================================================================
 #
@@ -1722,7 +1906,7 @@ LW_0BRANCH_wd: do_const _0BRANCH_wd
 # DIGIT NUMBER
 
 
-KEY_hd: LW_0BRANCH_hd 0 3 "KEY"
+KEY_hd: LW_minusLOOP_hd 0 3 "KEY"
 KEY_wd: ? # Fetches in a char (buffers through C_)
     # IF EOF, halts
 
@@ -2842,7 +3026,6 @@ forth_init_latest_val: ? # Constant that points to START_hd
 START_hd: RESTART_hd 0 5 "START"
 START_wd: ?
 START_cd: # Starts executing here with no state
-
     #=== INIT STACK
     # (Stack base is at DS0. First item on stack will be at DS0
     #  With empty stack, SP should point to DS0+1
