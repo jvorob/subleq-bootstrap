@@ -49,15 +49,14 @@ SILENT
 
 
 : 'A' C' A ;
-: 'a' C' a ;
-: 'z' C' z ;
 : 'Z' C' Z ;
 : '0' C' 0 ;
 : '(' C' ( ;
 : ')' C' ) ;
 : '"' C' " ;
-: '\n' 10 ;
+: '\N' 10 ;
 : '\\' 92 ;
+: CR '\N' EMIT ;
 
 
 ( Stack helpers )
@@ -131,7 +130,7 @@ SILENT
 
 ( should function identically to exit, but has a different CFA,
   should help in disassembly )
-: RETURN TAILCALL EXIT ;
+: RETURN TAILCALL ; ( will tailcall its own exit )
 
 ( ============= VARIABLES ============= )
 
@@ -274,11 +273,11 @@ SILENT
 
 : DIGASCII ( dig -- [outputs ascii] )
     DUP 36 >= IF ( n )
-        DROP C' ? EXIT
+        DROP C' ? RETURN
     THEN DUP 10 >= IF ( n )
-        10 - 'A' + EXIT ( digit in 10-35, A-Z )
+        10 - 'A' + RETURN ( digit in 10-35, A-Z )
     THEN DUP 0 >= IF ( n )
-        '0' + EXIT ( digit in 0-9 )
+        '0' + RETURN ( digit in 0-9 )
     THEN  ( n )
         DROP C' ?
     ;
@@ -390,11 +389,6 @@ DECIMAL
 
 ( ========== Fancier quoting/inlining ========= )
 
-( update quote ' to be flexible, working in normal mode or compile mode)
-: ' ( <finds next word> -- <pushes / compiles CFA > )
-    ' ( lookup using old func )
-    STATE @ IF #, THEN
-    ; IMMEDIATE
 
 ( Experimental? )
 ( TWO SCHOOLS OF THOUGHT
@@ -426,12 +420,8 @@ DECIMAL
 : C' CHAR
     STATE @ IF #, THEN ; IMMEDIATE
 
-: ASCIIUPPER ( c -- uppercase(c) )
-    DUP 'a' >=      ( c is>a )
-    OVER 'z' <= AND ( c islowalph )
-    IF  ( if islowercase, shift up by 'A'-'a')
-        [ 'A' 'a' - #, ] +
-    THEN ;
+: ISASCIILOWER ( c -- bool ) DUP C' a >= SWAP C' z <= AND ;
+: ASCIIUPPER DUP ISASCIILOWER IF [ 'A' C' a - #, ] + THEN ;
 
 : UPPER ( strp -- strp [ uppercases the string] )
     DUP @ ( str len )
@@ -468,7 +458,7 @@ DECIMAL
         DUP '\\' = IF ( strp len '\' )
             ( got \, fetch next char and check escapes )
             DROP KEY
-            DUP C' n = IF DROP '\n'  ( strp len '\n' )
+            DUP C' n = IF DROP '\N'  ( strp len '\N' )
             ELSE
                 ( strp len escchar )
                 ( just leave the escaped char to be enclose )
@@ -551,7 +541,7 @@ DECIMAL
 
     0 BEGIN ( num_skipped )
         TOKEN ( num_skipped token -- )
-        DUP 1+ @ '\n' = IF ( if is \n )
+        DUP 1+ @ '\N' = IF ( if is \n )
             SWAP 1+ SWAP
         THEN
         STR" END_OF_FILE" STR= ( if is EOF, break )
@@ -559,7 +549,7 @@ DECIMAL
     ( -- num_skipped ) ;
 
 : SKIP_TO_NL ( discards rest of input line until it hits a \n )
-    BEGIN KEY '\n' = UNTIL ;
+    BEGIN KEY '\N' = UNTIL ;
 
 
 ( Interpreter v2: key features:
@@ -673,7 +663,7 @@ DECIMAL
 
         ELSE ( either \n or invalid token )
             ( tok -- )
-            DUP 1+ @ '\n' = IF
+            DUP 1+ @ '\N' = IF
                 ( tok -- ; Got newline, all is well )
                 ( ; prompt, continue )
                 DROP
@@ -730,7 +720,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 : _CHECKED_FIND ( strp - cfa [ errors if not found ] )
     DUP ?FIND ?DUP IF
         ( strp cfa )
-        NIP EXIT ( -- cfa )
+        NIP RETURN ( -- cfa )
     THEN ( if not found: )
     ( strp )
     STR" ERROR IN FIND: " TELL
@@ -739,7 +729,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     HANDLE_ERR
     ;
 
-( patch FIND to use _CHEKCED_FIND )
+( patch FIND to use _CHECKED_FIND )
 ' FIND ' _CHECKED_FIND PATCH
 
 ( Upgrade : to error out if we call it in compile mode )
@@ -764,7 +754,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     R> R> 2DROP
     ;
 : DEBUG
-    DEBUG_STATE @ 0= IF EXIT THEN ( skip debugging if disabled )
+    DEBUG_STATE @ 0= IF RETURN THEN ( skip debugging if disabled )
 
     STR" \n === ENTERING DEBUGGER ===\n" TELL
     .S
@@ -931,7 +921,7 @@ FORGET' TESTCASE_START ( forget all our temporary testing words )
 
 : /MOD ( a b -- )
     OVER 0>= [ LW_0BRANCH , 3 , ] ( if a positive, just do unsigned divide )
-        U/MOD EXIT
+        U/MOD RETURN
     ( else )
     SWAP NEG SWAP U/MOD ( -quot, rem )
     SWAP NEG SWAP NEG ( negate quotient and remainder??? ) ;
