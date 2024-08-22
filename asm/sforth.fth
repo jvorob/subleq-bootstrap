@@ -259,6 +259,39 @@ SILENT
 
 ( ( WOO HOO WE CAN DO NESTED ) )
 
+( ============ DO/LOOP ============ )
+
+: DO ( end start -- RS: end start )
+    LW_DO , ( enclose lw_do )
+    DP @ ( stash loopback label )
+    ; IMMEDIATE
+
+( for all 3: stack is ( loopstart -- ) )
+: LOOP 1 #, LW_+LOOP ,
+    DP @ - , ( offset to label: label-here )
+    ; IMMEDIATE
+: +LOOP LW_+LOOP ,
+    DP @ - , ( offset to label: label-here )
+    ; IMMEDIATE
+: -LOOP LW_-LOOP ,
+    DP @ - , ( offset to label: label-here )
+    ; IMMEDIATE
+
+( : I> R@ ; )
+: J> ( RS: jend j iend i ra -- ) 3 RPICK ;
+: K> 5 RPICK ;
+
+: LEAVE ( sets I = end )
+    ( RS: end I ra ) R>
+    R> DROP ( RS: end )
+    R@ >R >R ( RS: end end ra ) ;
+
+( === loop helpers === )
+: STRBOUNDS ( strp -- &str[0] &str_end )
+    DUP @ ( strp len -- )
+    OVER + 1+ ( strp strend )
+    SWAP 1+ ( strend str[0] )
+    ;
 
 ( ========== OUTPUT . and friends ========= )
 
@@ -374,17 +407,10 @@ DECIMAL
 
 : .S ( prints all items on the stack )
     STACKCOUNT . C' : EMIT SPACE
-
-    SP@ ( pointer to last thing we want to print)
-
-    DS0 ( ptr_tos ptr_0 )
-
-    BEGIN ( tos curr )
-    2DUP <= WHILE ( TOSP curr ; stop once we pass TOS  )
-        DUP @ . ( TOSP curr ; print curr )
-        1- ( TOSP next )
-    WEND ( TOSP next )
-    2DROP NL ;
+    ( we want to print ds0 first, so -LOOP. Include SP@ )
+    SP@ 1- DS0  ( DS0 downto and incl SP@ )
+    DO I> @ .  1 -LOOP
+    NL ;
 
 
 ( ========== Fancier quoting/inlining ========= )
@@ -948,6 +974,18 @@ FORGET' TESTCASE_START ( forget all our temporary testing words )
     STR" = " TELL
     ( q*v r ) + X.
     ;
+
+( ================== MISC TESTS  ====================== )
+
+( let's test it by summing 0..2 * 10..12 )
+( should be 0+0+10+11+20+22 = 63)
+: TEST
+    0 ( sum ) 3 0 DO 12 10 DO
+        I> J> * +
+    LOOP ( C' : EMIT DUP . CR ) LOOP ;
+TEST 63 EXPECT" 2-dim loop"
+FORGET' TEST
+
 ( ================== INTROSPECTION/DISASSEMBLY  ====================== )
 HEX
 
@@ -979,47 +1017,39 @@ DECIMAL
 
 ( basic: just prints them out )
 : DUMP ( ptr len -- )
+    OVER + SWAP ( ptrend ptr )
     ( Prints out len words starting at ptr
       pads to 5 digits (might collide if has -1000 ) )
-    BEGIN DUP 0> WHILE ( ptr len )
-        OVER ISUNSAFEPTR IF
+    DO I> ISUNSAFEPTR IF
             C' ? EMIT 4 SPACES
         ELSE
-            OVER @ 5 U.R ( ptr len ; print char)
-        THEN
-        1- SWAP 1+ SWAP ( ptr++ len-- )
-    WEND ( ptr 0 )
-    2DROP ;
+            I> @ 5 U.R THEN
+    LOOP ;
 
 : HEXDUMP_HEADER
     7 SPACES ( skip corner )
-    0 BEGIN  ( columns at 5 char pitch: )
-        C' x EMIT DUP 4 U.R ( print xN, pad to 5 chars)
-        DUP 7 = IF 5 SPACES THEN ( add gap after 8th col )
-        1+ DUP 15 > UNTIL
-    DROP NL  ;
+    16 0 DO  ( columns at 5 char pitch: )
+        C' x EMIT I> 4 U.R ( print xN, pad to 5 chars)
+        I> 7 = IF 5 SPACES THEN ( add gap after 8th col )
+    LOOP NL ;
 
 : HEXDUMP ( ptr len -- )
     BASE @ HEX -ROT ( base ptr len -- ; save base )
-
     HEXDUMP_HEADER ( print out key along top of table )
 
     OVER + ( base ptr end )
     ( expand region to nearest multiple )
     16ALIGN SWAP -16ALIGN SWAP ( start end )
 
-    BEGIN 2DUP < WHILE ( curr end )
-        ( curr end; print out "addr: val val val val..." )
-        OVER 5 U.R
+    SWAP ( end start ) DO
+        ( print out "addr: val val val val..." )
+        I> 5 U.R
         STR" : " TELL ( curr end )
-        OVER 8 DUMP    ( ; dump first 8 words )
+        I> 8 DUMP    ( ; dump first 8 words )
         STR"  === " TELL
-        OVER 8 + 8     ( curr end curr+8 8 ; dump next 8 words )
-            DUMP
-            NL
-        SWAP 16 + SWAP ( curr+16 end )
-    WEND ( base end end )
-    2DROP
+        I> 8 + 8 DUMP ( ; dump next 8 words )
+        NL
+    16 +LOOP
     BASE ! ( restore base );
 
 ( ==================  WORD INTROSPECTION/DISASSEMBLY  ====================== )
@@ -1118,13 +1148,11 @@ DECIMAL
 
 : DISASSEMBLE ( addr len -- )
     BASE @ HEX -ROT
-    BEGIN DUP 0> WHILE ( addr len )
-        OVER 5 U.R  ( print addr: )
-            STR" : " TELL
-        OVER @ SHOW NL ( show word at addr )
-        1- SWAP 1+ SWAP ( addr++ len-- )
-    WEND
-    2DROP
+    OVER + SWAP ( end start )
+    DO  I> 5 U.R  ( print addr: )
+        STR" : " TELL
+        I> @ SHOW NL ( show word at addr )
+    LOOP
     BASE ! ;
 
 : ISPRIMARY ( xt -- 1/0 )
@@ -1227,24 +1255,13 @@ DECIMAL
 
 : RSDUMP ( start last -- )
     BASE @ HEX >R
-
-    SWAP ( OVER + ( start start+len ) )
-
-    ( loop until currp > endp )
-    BEGIN 2DUP >= WHILE ( endp currp ; loop until rsp > RS0 )
-        ( endp currp )
-        DUP 3 U.R ( print out current rsp )
-            ')' EMIT SPACE
-
-        DUP @ RSHOW ( rsp;  fetch ra, format with rshow )
+    1+ SWAP ( last+1 start ) DO
+        ( print out: "{rsa}] {RSHOW}\n" )
+        I> 3 U.R ')' EMIT SPACE
+        I> @ RSHOW ( rsp;  fetch ra, format with rshow )
         NL
-
-        1+  ( endp currp++)
-    WEND ( endp currp )
-
-    2DROP
-    R> BASE !
-    ;
+    LOOP
+    R> BASE ! ;
 
 : .RS ( -- prints return stack)
     RSP@ 1+ ( rsp ; ignore own RA )
@@ -1314,49 +1331,6 @@ DECIMAL
         LATEST @ >WNA TELL NL
     ;
 
-( ============ DO/LOOP ============ )
-
-( Something like the following should print from 0..=9
-    10 0 DO I> . LOOP
-  `DO` pushes to .RS: RA end I -r-
-  n +LOOP \ increments by a specific amount
-  n -LOOP \ goes down
-  BREAK \ sets loop counter to end, will break next time
-)
-: DO
-    LW_DO , ( enclose lw_do )
-    DP @ ( stash loopback label )
-    ; IMMEDIATE
-
-
-( for all 3: stack is ( loopstart -- ) )
-: LOOP 1 #, LW_+LOOP ,
-    DP @ - , ( offset to label: label-here )
-    ; IMMEDIATE
-: +LOOP LW_+LOOP ,
-    DP @ - , ( offset to label: label-here )
-    ; IMMEDIATE
-: -LOOP LW_-LOOP ,
-    DP @ - , ( offset to label: label-here )
-    ; IMMEDIATE
-
-( : I> R@ ; )
-: J> ( RS: jend j iend i ra -- ) 3 RPICK ;
-: K> 5 RPICK ;
-
-: LEAVE ( sets I = end )
-    ( RS: end I ra ) R>
-    R> DROP ( RS: end )
-    R@ >R >R ( RS: end end ra ) ;
-
-( let's test it by summing 0..2 * 10..12 )
-( should be 0+0+10+11+20+22 = 63)
-: TEST
-    0 ( sum ) 3 0 DO 12 10 DO
-        I> J> * +
-    LOOP ( C' : EMIT DUP . CR ) LOOP ;
-TEST 63 EXPECT" 2-dim loop"
-FORGET' TEST
 
 ( ==== ASSERTS? NOT WORKING )
 
