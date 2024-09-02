@@ -131,11 +131,20 @@ SILENT
   should help in disassembly )
 : RETURN TAILCALL ; ( will tailcall its own exit )
 
+
+( mark and resolve, mark leaves an addr, resolve fixes up an addr )
+( to be used with branch/0branch. )
+: HERE DP @ ;
+: CFMARK< ( -- tgtaddr ) HERE ;
+: CFRESOLVE< ( tgtaddr -- ) HERE - ( delta tgt-here ) , ;
+: CFMARK>    ( -- fixaddr ) HERE 1 ALLOT ;
+: CFRESOLVE> ( fixaddr -- ) HERE OVER - ( fixaddr\delta ) SWAP ! ;
+
 ( ============= VARIABLES ============= )
 
 : VARIABLE ( init_val [TOKEN] - )
     ( creates a new word that returns ptr to value)
-    DP @         ( init_val hdr -- store current addr )
+    HERE         ( init_val hdr -- store current addr )
     TOKEN CREATE ( create header, links into latest )
     LATEST !     ( init_val -- : link word into latest)
     DO_VAR ,     ( set codefield as DO_VAR )
@@ -144,7 +153,7 @@ SILENT
 
 : CONSTANT ( init_val [TOKEN] - )
     ( creates a new word that returns value)
-    DP @         ( init_val hdr -- store current addr )
+    HERE         ( init_val hdr -- store current addr )
     TOKEN CREATE ( create header, links into latest )
     LATEST !     ( init_val -- : link word into latest)
     DO_CONST ,   ( set codefield )
@@ -154,85 +163,48 @@ SILENT
 
 ( ========== CONTROL FLOW ========= )
 
-( BEGIN loop test UNTIL )
-( BEGIN loop REPEAT )
-: BEGIN ( -- begin_addr )
-    DP @  ( push HERE to rstack )
-    ; IMMEDIATE
-
-: UNTIL ( begin_addr -- ; compiles 0BRANCH, offset )
-    LW_0BRANCH , ( enclose 0branch)
-              ( begin_addr  -- )
-    DP @ -    ( calculate offset:  begin_addr-HERE )
-    ,  ( enclose offset, tgt-curr )
-    ; IMMEDIATE
-
-: REPEAT ( begin_addr -- ; compiles BRANCH, offset )
-    LW_BRANCH , ( enclose 0branch)
-              ( begin_addr  -- )
-    DP @ -    ( calculate offset:  begin_addr-HERE )
-    ,  ( enclose offset, tgt-curr )
-    ; IMMEDIATE
-
+( BEGIN loopbody test UNTIL )
+( BEGIN loopbody REPEAT )
+: BEGIN  ( -- mark< ) CFMARK< ; IMMEDIATE
+: UNTIL  ( mark< -- ) LW_0BRANCH , CFRESOLVE< ; IMMEDIATE
+: REPEAT ( mark< -- ) LW_BRANCH , CFRESOLVE< ; IMMEDIATE
 
 
 ( test IF a ELSE b THEN )
 ( compiles to:
   test 0BRANCH to_else a BRANCH to_then offset b _
 )
-: IF ( -- if_fixup )
-    LW_0BRANCH , ( enclose 0BRANCH )
-    DP @         ( push addr of offset )
-    1 ALLOT      ( leave room for offset)
-    ; IMMEDIATE
+: IF ( -- mark> ) LW_0BRANCH , CFMARK> ; IMMEDIATE
+: THEN ( if_fix | else_fix -- ) CFRESOLVE> ; IMMEDIATE
 
-( compiles a BRANCH to end of THEN )
-( sets if_fixup to point into else case )
-( pushes else_fixup )
+( compiles a BRANCH, marks>, will jump past the THEN )
+( resolves IF's mark to 0BRANCH into the else case )
 : ELSE ( if_fixup -- else_fixup )
     LW_BRANCH , ( enclose BRANCH )
-    DP @  ( if_fixup else_fixup )
-    SWAP  ( e_fix i_fix)
-
-    1 ALLOT ( ;leave room for offset )
-
-    ( calculate offset that the if's 0branch should jump to
-      Needs to jump into the else case, which is where we are now
-      do here - if_fixup )
-
-    DP @    ( e_fix i_fix here )
-    OVER -  ( e_fix i_fix  here-i_fix )
-    SWAP !  ( e_fix  ; writes offset into 0BRANCH from if )
-    ; IMMEDIATE
-
-: THEN ( if_fix -- ; note: can takes either if_fix or else_fix )
-    ( calculate offset: HERE - if_fix )
-    DP @    ( if_fix here )
-    OVER -  ( if_fix here-if_fix )
-    SWAP !  ( ; write offset into BRANCH/0BRANCH from before )
+    CFMARK> SWAP ( else_mark> if_mark> -- )
+    CFRESOLVE>
     ; IMMEDIATE
 
 
 ( BEGIN test WHILE loop WEND )
 ( compiles to:
-  _ test 0BRANCH to_wend loop BRANCH to_test
+  begin:
+    [test]
+    0BRANCH to_wend
+    [loopbody]
+    BRANCH begin
+  wend:
 )
-( NOTE: while compiles exactly like if, but need to escape it)
+( NOTE: while compiles exactly like if)
 : WHILE [POSTPONE] IF ; IMMEDIATE
 
 ( compiles a branch back to BEGIN,
   fixes up WHILE's offset to point after itself )
-: WEND ( begin_addr while_fix_addr -- )
+: WEND ( begin_mark< while_mark> -- )
     LW_BRANCH ,
-    ( calculate offset to begin: begin-HERE)
-    SWAP ( while_fix begin_addr )
-    DP @ - , ( enclose offset to begin )
+    SWAP CFRESOLVE< ( WEND branches back to begin/loop-test )
 
-    ( calculate offset for while_fix to come here )
-    ( while_fix -- )
-    DP @ ( while_fix here -- )
-    OVER - ( while_fix HERE-while_fix -- )
-    SWAP ! ( -- ; set while_fix offset to come here)
+    ( while_mark> -- ) CFRESOLVE> ( WHILE branches out of loop once test fails )
     ; IMMEDIATE
 
 
@@ -260,21 +232,14 @@ SILENT
 
 ( ============ DO/LOOP ============ )
 
-: DO ( end start -- RS: end start )
-    LW_DO , ( enclose lw_do )
-    DP @ ( stash loopback label )
-    ; IMMEDIATE
 
-( for all 3: stack is ( loopstart -- ) )
-: LOOP 1 #, LW_+LOOP ,
-    DP @ - , ( offset to label: label-here )
-    ; IMMEDIATE
-: +LOOP LW_+LOOP ,
-    DP @ - , ( offset to label: label-here )
-    ; IMMEDIATE
-: -LOOP LW_-LOOP ,
-    DP @ - , ( offset to label: label-here )
-    ; IMMEDIATE
+( runtime: ( end start -- RS: end start ) )
+: DO ( compile: -- DO_mark< ) LW_DO , CFMARK< ; IMMEDIATE
+
+( for all 3: stack is ( DO_mark< -- ) )
+: LOOP  1 #, LW_+LOOP , CFRESOLVE< ; IMMEDIATE
+: +LOOP      LW_+LOOP , CFRESOLVE< ; IMMEDIATE
+: -LOOP      LW_-LOOP , CFRESOLVE< ; IMMEDIATE
 
 : ['] ' #, ; IMMEDIATE
 ( ?DO ?LOOP compiles as `2DUP < IF DO .. LOOP ELSE 2DROP THEN` )
@@ -284,15 +249,14 @@ SILENT
     ; IMMEDIATE
 : ?+LOOP ( marker-IF marker-DO -- )
     [POSTPONE] +LOOP
-    [POSTPONE] ELSE
-        ['] 2DROP , [POSTPONE] THEN
+    [POSTPONE] ELSE ['] 2DROP , [POSTPONE] THEN
     ; IMMEDIATE
 : ?LOOP ( marker-IF marker-DO -- )
     1 #, [POSTPONE] ?+LOOP
     ; IMMEDIATE
 
 : FLIP?DO ( marker-IF marker-DO -- markerIF marker-DO )
-    OVER 2 - ( addr of > )
+    OVER 2 - ( addr of >, "2DUP > 0BRANCH IF_mark>"  )
     ['] < SWAP ! ( overwrite )
     ;
 : ?-LOOP ( marker-IF marker-DO -- )
