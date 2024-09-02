@@ -78,7 +78,7 @@ hex1.bin: asm/hex1.hex1 hex1
 # ===== Forth?
 .PHONY: sforth
 sforth: sforth.bin
-	# We want to load the .fth source, but we don't want it to be buffered
+	@# We want to load the .fth source, but we don't want it to be buffered
 	cat asm/sforth.fth - | stdbuf -i0 -o0 -e0 ./sleqrun $<
 
 sforth.bin: asm/sforth.asm2 asm2.bin

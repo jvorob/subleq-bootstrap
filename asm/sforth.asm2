@@ -2317,7 +2317,7 @@ NUMBER_wd: do_colon #(strp -- number 1  OR  0 )
 # CREATE
 # >CFA >DFA
 # : ;
-# ?IMMED
+# IMMED?
 # TODO: IMMEDIATE?
 # FIND
 
@@ -2361,12 +2361,12 @@ _toDFA_wd: do_colon #(word_header_address - DFA)
     _toCFA_wd _1plus_wd EXIT_wd
 
 # TODO: this isn't correct, later gotta add proper flags
-_qIMMED_hd: _toDFA_hd 0 6 "?IMMED"
-_qIMMED_wd: do_colon #(word_header_address - 1/0 [if is immed])
+IMMEDq_hd: _toDFA_hd 0 6 "IMMED?"
+IMMEDq_wd: do_colon #(word_header_address - 1/0 [if is immed])
     _1plus_wd _at_wd _0ne_wd EXIT_wd
 
 
-_colon_hd: _qIMMED_hd 0 1 ":"
+_colon_hd: IMMEDq_hd 0 1 ":"
 _colon_wd: do_colon
     # sets WIP to point to curr header
     DP_wd _at_wd WIP_wd _bang_wd  #point WIP to DP
@@ -2512,7 +2512,7 @@ _qEXECUTE_wd: do_colon # ( wha -- )
 
 
     #CSPLIT_wd EMIT_wd EMIT_wd
-    _qIMMED_wd _0BRANCH_wd 3 #(cfa)
+    IMMEDq_wd _0BRANCH_wd 3 #(cfa)
         # If immediate:
         EXECUTE_wd EXIT_wd
 
