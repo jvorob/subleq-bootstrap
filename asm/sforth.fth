@@ -56,7 +56,6 @@ SILENT
 : '"' C' " ;
 : '\N' 10 ;
 : '\\' 92 ;
-: CR '\N' EMIT ;
 
 
 ( Stack helpers )
@@ -448,26 +447,19 @@ DECIMAL
 
 : ISASCIILOWER ( c -- bool ) DUP C' a >= SWAP C' z <= AND ;
 : ASCIIUPPER DUP ISASCIILOWER IF [ 'A' C' a - #, ] + THEN ;
-
 : UPPER ( strp -- strp [ uppercases the string] )
-    DUP @ ( str len )
-    OVER 1+ ( strp len strp+1 )
-    BEGIN OVER 0> WHILE ( loop while len>0 )
-        ( ; uppercase current )
-        DUP @ ASCIIUPPER ( strp len pcurr upper(c) )
-        OVER ! ( strp len pcurr ; writes char )
-        1+ SWAP 1- SWAP ( strp len-1 p+1 )
-    WEND ( strp len p_end )
-    2DROP ;
+    DUP STRBOUNDS DO I> @ ASCIIUPPER I> ! LOOP ;
+
+( update quote ' to be flexible, working in normal mode or compile mode
+  also looks up by uppercasing )
+: ' ( <finds next word> -- <pushes / compiles CFA > )
+    TOKEN UPPER FIND >CFA ( lookup using old func )
+    STATE @ IF #, THEN
+    ; IMMEDIATE
 
 
 ( TODO
 : MEMWRITE" ( pointer -- [reads string into memory at specified location] )
-
-: TELL" ( -- ; VERSATILE
-        in compile: compiles string literal into word and tells it
-        in normal mode:
-)
 )
 
 : STR", ( -- strp ; Reads a string using KEY, encloses in dict, stops at " )
@@ -484,7 +476,7 @@ DECIMAL
         DUP '\\' = IF ( strp len '\' )
             ( got \, fetch next char and check escapes )
             DROP KEY
-            DUP C' n = IF DROP '\N'  ( strp len '\N' )
+            DUP ASCIIUPPER C' N = IF DROP '\N'  ( strp len '\N' )
             ELSE
                 ( strp len escchar )
                 ( just leave the escaped char to be enclose )
@@ -512,6 +504,14 @@ DECIMAL
     STR",  ( enclose string in dict )
     DROP ( STR", returns a string pointer??? TODO: RETHINK THIS)
     ; IMMEDIATE
+
+: ." ( [reads string] -- ; tells it (VERSATILE) )
+    STATE @ IF
+        [POSTPONE] STR"
+        ' TELL ,
+    ELSE
+        TEMPSTR" TELL
+    THEN ; IMMEDIATE
 
 
 ( Patch CREATE to always uppercase its tokens )
@@ -982,7 +982,7 @@ FORGET' TESTCASE_START ( forget all our temporary testing words )
 : TEST
     0 ( sum ) 3 0 DO 12 10 DO
         I> J> * +
-    LOOP ( C' : EMIT DUP . CR ) LOOP ;
+    LOOP ( C' : EMIT DUP . NL ) LOOP ;
 TEST 63 EXPECT" 2-dim loop"
 FORGET' TEST
 
