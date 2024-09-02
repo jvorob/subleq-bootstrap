@@ -276,6 +276,33 @@ SILENT
     DP @ - , ( offset to label: label-here )
     ; IMMEDIATE
 
+: ['] ' #, ; IMMEDIATE
+( ?DO ?LOOP compiles as `2DUP < IF DO .. LOOP ELSE 2DROP THEN` )
+: ?DO ( -- marker-IF, marker-DO )
+    ['] 2DUP , ['] > , [POSTPONE] IF
+    [POSTPONE] DO
+    ; IMMEDIATE
+: ?+LOOP ( marker-IF marker-DO -- )
+    [POSTPONE] +LOOP
+    [POSTPONE] ELSE
+        ['] 2DROP , [POSTPONE] THEN
+    ; IMMEDIATE
+: ?LOOP ( marker-IF marker-DO -- )
+    1 #, [POSTPONE] ?+LOOP
+    ; IMMEDIATE
+
+: FLIP?DO ( marker-IF marker-DO -- markerIF marker-DO )
+    OVER 2 - ( addr of > )
+    ['] < SWAP ! ( overwrite )
+    ;
+: ?-LOOP ( marker-IF marker-DO -- )
+    FLIP?DO ( switch test to use < instead of > )
+    [POSTPONE] -LOOP
+    [POSTPONE] ELSE
+        ['] 2DROP , [POSTPONE] THEN
+    ; IMMEDIATE
+
+
 ( : I> R@ ; )
 : J> ( RS: jend j iend i ra -- ) 3 RPICK ;
 : K> 5 RPICK ;
@@ -408,6 +435,7 @@ DECIMAL
     STACKCOUNT . C' : EMIT SPACE
     ( we want to print ds0 first, so -LOOP. Include SP@ )
     SP@ 1- DS0  ( DS0 downto and incl SP@ )
+    2DUP >= IF 2DROP RETURN THEN
     DO I> @ .  1 -LOOP
     NL ;
 
@@ -448,7 +476,7 @@ DECIMAL
 : ISASCIILOWER ( c -- bool ) DUP C' a >= SWAP C' z <= AND ;
 : ASCIIUPPER DUP ISASCIILOWER IF [ 'A' C' a - #, ] + THEN ;
 : UPPER ( strp -- strp [ uppercases the string] )
-    DUP STRBOUNDS DO I> @ ASCIIUPPER I> ! LOOP ;
+    DUP STRBOUNDS ?DO I> @ ASCIIUPPER I> ! ?LOOP ;
 
 ( update quote ' to be flexible, working in normal mode or compile mode
   also looks up by uppercasing )
@@ -525,10 +553,10 @@ DECIMAL
 
 ( ========== NEW OUTER INTERP, restart ========= )
 
-: ?EXECUTE ( wha -- ; compiles or executes, based on STATE and ?IMMED)
+: ?EXECUTE ( wha -- ; compiles or executes, based on STATE and IMMED?)
     STATE @ IF ( we're in compile mode )
         ( it's immediate, execute it )
-        DUP ?IMMED IF
+        DUP IMMED? IF
              >CFA EXECUTE
         ELSE >CFA , ( else compile )
         THEN
@@ -1020,11 +1048,11 @@ DECIMAL
     OVER + SWAP ( ptrend ptr )
     ( Prints out len words starting at ptr
       pads to 5 digits (might collide if has -1000 ) )
-    DO I> ISUNSAFEPTR IF
+    ?DO I> ISUNSAFEPTR IF
             C' ? EMIT 4 SPACES
         ELSE
             I> @ 5 U.R THEN
-    LOOP ;
+    ?LOOP ;
 
 : HEXDUMP_HEADER
     7 SPACES ( skip corner )
@@ -1149,10 +1177,10 @@ DECIMAL
 : DISASSEMBLE ( addr len -- )
     BASE @ HEX -ROT
     OVER + SWAP ( end start )
-    DO  I> 5 U.R  ( print addr: )
+    ?DO  I> 5 U.R  ( print addr: )
         STR" : " TELL
         I> @ SHOW NL ( show word at addr )
-    LOOP
+    ?LOOP
     BASE ! ;
 
 : ISPRIMARY ( xt -- 1/0 )
@@ -1255,12 +1283,12 @@ DECIMAL
 
 : RSDUMP ( start last -- )
     BASE @ HEX >R
-    1+ SWAP ( last+1 start ) DO
+    1+ SWAP ( last+1 start ) ?DO
         ( print out: "{rsa}] {RSHOW}\n" )
         I> 3 U.R ')' EMIT SPACE
         I> @ RSHOW ( rsp;  fetch ra, format with rshow )
         NL
-    LOOP
+    ?LOOP
     R> BASE ! ;
 
 : .RS ( -- prints return stack)
