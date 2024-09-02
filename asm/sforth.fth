@@ -1351,7 +1351,104 @@ DECIMAL
    THEN ( delta )
    DROP ;
 
+( ===================== OUTPUT SELF AS A BINARY ==================== )
+
+0 VARIABLE CURRP ( current output-binary offset in words )
+: B, ( n -- [ emits n as LE-binary ] )
+    CSPLIT EMIT EMIT 1 CURRP +! ;
 
 
-GREET
+: ASSERTLE ( addr -- ; ) DUP CURRP @ SWAP ( addr currp addr ) > IF
+        HEX ." BINERROR: currp= " CURRP ?
+        ." , expected  <= " ( addr ) . NL
+    ELSE DROP THEN ;
+: ASSERTEQ ( addr -- ) DUP CURRP @ <> IF
+        HEX ." BINERROR: currp=" CURRP ?
+        ." , expected " ( addr ) . NL
+        HANDLE_ERR
+    ELSE DROP THEN ;
+
+
+HEX
+( : BECHO ( -- ; outputs whatever is at currp ) CURRP @ @ B, ; )
+: BDUMPTILL ( end -- ; ) DUP ASSERTLE CURRP @ ?DO I> @ B, ?LOOP ;
+: BPADTILL ( end padval -- ; )  SWAP ( pad end ) DUP ASSERTLE CURRP @ ?DO DUP B, ?LOOP DROP ;
+: BLANKTILL ( end -- ; )  000D BPADTILL ;
+
+
+
+( constants for binary output )
+2 CONSTANT $ENTRY ( address of entrypoint )
+( addresses of ASM vars / labels )
+800 CONSTANT $NWA
+800 CONSTANT $NEXT
+810 CONSTANT $CWA
+810 CONSTANT $RUN
+
+: B$?   ( -- )      CURRP @ 1+ B, ; ( asm `?` )
+: B$OP  ( a b -- )  SWAP B, B, B$? ; ( asm `a b ?` )
+: B$JMP ( addr -- ) 0 B, 0 B, ( addr ) B, ; ( asm `Z Z addr` )
+
+
+: SETUPENTRY 0 ASSERTEQ 0 B, 0 B, 2000 B, ;
+
+( see sforth.asm2 for logic:
+    if we jump to 0D, it goes to 140
+    if we execute bad mem we clear 0D then jump to 0D
+    if we treat 0D as an XT, we jump to 150 )
+: BADMEMCATCHER
+    000D ASSERTEQ
+    0150 B, 0 B, 0140 B, ;
+DECIMAL
+
+HEX
+
+: MAKESTACKS
+    0200 ASSERTEQ
+    ( TOS, NOSP_, RSP_ live here )
+    ( leave stacks blank, restart will fix canaries )
+    0500 BLANKTILL ( blank vars, blank stacks, token buff )
+    ;
+
+
+: MAKECONSTS 0040 BLANKTILL ( integer constants in x40 - xA0 )
+    0060 BDUMPTILL ( pos/neg ints 0-F )
+    0080 BLANKTILL 00A0 BDUMPTILL ( pos/neg 0? - F? )
+    ;
+
+: MAKEINIT 2000 BLANKTILL ( asm entrypoint )
+    $ENTRY $ENTRY B$OP   05D $ENTRY B$OP ( overwrite entry with 0D )
+    ' START 1+ B$JMP ( jump to body of START )
+    ;
+
+: MAKEBINARY
+    SETUPENTRY
+    0008 BLANKTILL
+    000D 0 BPADTILL ( alu )
+    BADMEMCATCHER
+    0030 0 BPADTILL ( regs )
+    0 B, ( C_, last char read )
+    1 B, ( C_needs_fetch (start with no char) )
+    MAKECONSTS
+    0200 BDUMPTILL ( echo everything until stack (exceptions) )
+    MAKESTACKS
+    2000 BDUMPTILL ( emit core ( TODO: cut out tests? old init? ) )
+    ( set up entry
+        -don't need to init DP, LATEST, EXC_HANDLER.
+        -restart_wd_addr is only for v0 interpreter )
+    MAKEINIT
+
+    3000 BLANKTILL ( empty space)
+    DP @ BDUMPTILL ( copy dict )
+    ;
+DECIMAL
+
+: SELFCOMPILE
+    0 BULKLOAD ! ( reset this, not a good way to do it otherwise )
+    MAKEBINARY
+    0 HALTN ;
+
+: TEST ; ( test word to catch if we're still in compile mode ) FORGET' TEST
+ GREET
+( SELFCOMPILE )
 END_OF_FILE
