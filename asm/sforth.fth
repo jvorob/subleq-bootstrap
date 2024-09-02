@@ -538,19 +538,10 @@ DECIMAL
  In reading_file mode, errors should break interpreting until the end of the file
 )
 
-0 VARIABLE INTERPETER  ( RESTART jumps to current value of this )
 0 VARIABLE BULKLOAD ( Set to 0 by RESTART, set to 1 for bulk-loading,
                       disables OK and PROMPT on newline )
 
 ( === FILE LOADING MODE: === )
-
-: START_LOADING_FILE ( switches into bulkload mode )
-    NL STR" Loading until END_OF_FILE\n" TELL
-    1 BULKLOAD ! ;
-
-: END_OF_FILE ( switches out of bulkload mode)
-    STR" Finished Loading" TELL NL
-    0 BULKLOAD ! ;
 
 : SKIP_TO_EOF ( -- num_lines_skipped)
     ( Used in bulkload mode to skip the rest of file input
@@ -568,6 +559,18 @@ DECIMAL
 
 : SKIP_TO_NL ( discards rest of input line until it hits a \n )
     BEGIN KEY '\N' = UNTIL ;
+
+: START_LOADING_FILE ( switches into bulkload mode )
+    NL STR" Loading until END_OF_FILE\n" TELL
+    1 BULKLOAD ! ;
+
+: END_OF_FILE ( switches out of bulkload mode)
+    STR" Finished Loading" TELL NL
+    0 BULKLOAD ! ;
+
+: LOAD_DEBUG ( skips rest of file, breaks out of bulk mode )
+    SKIP_TO_EOF END_OF_FILE
+    STR" DEBUG: Skipped rest of file\n" TELL ;
 
 
 ( Interpreter v2: key features:
