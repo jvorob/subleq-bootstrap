@@ -70,10 +70,16 @@ SILENT
 : HEX 16 BASE ! ;
 : DECIMAL 10 BASE ! ;
 
-( : @! @ ! ; )
-( UHHHH THIS WORKS THE OPPOSITE OF HOW I'D WANT IT TO.
-  Disable this for now .
-  I want SRC @ TGT !, but this does TGT SRC @ ! )
+
+: WITHIN ( x ul uh -- b )
+    -ROT OVER ( b x a x )
+    <= -ROT ( a<=x b x )
+    > AND ;
+: WITHIN= ( x ul uh -- b ; upper bound is inclusive) 1+ WITHIN ;
+
+
+( convert ptr + len to loop bounds )
+: PL>LB ( ptr len -- end start ) OVER + SWAP ;
 
 ( ============== SCRIBING WORDS =========== )
 
@@ -85,6 +91,7 @@ SILENT
 ( all subsequent uses of find will use this, which we'll patch to do
   errorchecking )
 
+: HERE DP @ ;
 : ALLOT DP +! ;
 : #, ( n -- ; compiles TOS as a literal number ) LW_LIT , , ;
 : ' ( - CFA ; lookup CFA of next token ) TOKEN FIND >CFA ;
@@ -111,6 +118,35 @@ SILENT
     ! ; ( -- ; writes old[2] = new )
 
 
+( ============= VARIABLES ============= )
+
+: VARIABLE ( init_val [TOKEN] - )
+    ( creates a new word that returns ptr to value)
+    HERE         ( init_val hdr -- store current addr )
+    TOKEN CREATE ( create header, links into latest )
+    LATEST !     ( init_val -- : link word into latest)
+    DO_VAR ,     ( set codefield as DO_VAR )
+    ,            ( enclose initial value )
+;
+
+: CONSTANT ( init_val [TOKEN] - )
+    ( creates a new word that returns value)
+    HERE         ( init_val hdr -- store current addr )
+    TOKEN CREATE ( create header, links into latest )
+    LATEST !     ( init_val -- : link word into latest)
+    DO_CONST ,   ( set codefield )
+    ,            ( enclose initial value )
+;
+
+( addresses of ASM vars / labels )
+HEX
+800 CONSTANT $NWA
+800 CONSTANT $NEXT
+810 CONSTANT $CWA
+810 CONSTANT $RUN
+: 'EXIT [ ' EXIT #, ] ;
+DECIMAL
+
 ( ============== COMPILE WORDS =========== )
 
 ( Define postpone, useful for making compiling words that
@@ -131,34 +167,12 @@ SILENT
   should help in disassembly )
 : RETURN TAILCALL ; ( will tailcall its own exit )
 
-
 ( mark and resolve, mark leaves an addr, resolve fixes up an addr )
 ( to be used with branch/0branch. )
-: HERE DP @ ;
 : CFMARK< ( -- tgtaddr ) HERE ;
 : CFRESOLVE< ( tgtaddr -- ) HERE - ( delta tgt-here ) , ;
 : CFMARK>    ( -- fixaddr ) HERE 1 ALLOT ;
 : CFRESOLVE> ( fixaddr -- ) HERE OVER - ( fixaddr\delta ) SWAP ! ;
-
-( ============= VARIABLES ============= )
-
-: VARIABLE ( init_val [TOKEN] - )
-    ( creates a new word that returns ptr to value)
-    HERE         ( init_val hdr -- store current addr )
-    TOKEN CREATE ( create header, links into latest )
-    LATEST !     ( init_val -- : link word into latest)
-    DO_VAR ,     ( set codefield as DO_VAR )
-    ,            ( enclose initial value )
-;
-
-: CONSTANT ( init_val [TOKEN] - )
-    ( creates a new word that returns value)
-    HERE         ( init_val hdr -- store current addr )
-    TOKEN CREATE ( create header, links into latest )
-    LATEST !     ( init_val -- : link word into latest)
-    DO_CONST ,   ( set codefield )
-    ,            ( enclose initial value )
-;
 
 
 ( ========== CONTROL FLOW ========= )
@@ -277,7 +291,7 @@ SILENT
     R@ >R >R ( RS: end end ra ) ;
 
 ( === loop helpers === )
-: STRBOUNDS ( strp -- &str[0] &str_end )
+: STRBOUNDS ( strp -- &str_end &str[0] )
     DUP @ ( strp len -- )
     OVER + 1+ ( strp strend )
     SWAP 1+ ( strend str[0] )
@@ -428,14 +442,10 @@ DECIMAL
   - nested comments
 )
 DECIMAL
-: ISPRINTABLE ( c -- 1/0 )
-    ( true if in range 32-126 )
-    DUP  31 >
-    SWAP 126 <= AND ;
+: ISPRINTABLE ( c -- 1/0 ) 31 126 WITHIN= ;
 
 ( update C' to work in NORMAL mode as well )
-: C' CHAR
-    STATE @ IF #, THEN ; IMMEDIATE
+: C' CHAR   STATE @ IF #, THEN ; IMMEDIATE
 
 : ISASCIILOWER ( c -- bool ) DUP C' a >= SWAP C' z <= AND ;
 : ASCIIUPPER DUP ISASCIILOWER IF [ 'A' C' a - #, ] + THEN ;
@@ -529,9 +539,8 @@ DECIMAL
     THEN ;
 
 
-: ?DUP  ( n -- [ n n OR 0 ] )
-    ( duplicates if nonzero, useful for ?DUP IF )
-    DUP 0> IF DUP THEN ;
+( duplicates if nonzero, useful for ?DUP IF )
+: ?DUP  ( n -- [ n n OR 0 ] ) DUP 0> IF DUP THEN ;
 
 ( We wan't to behave differently when loading a forth file vs when in interactive mode
  In interactive mode, errors are reported immediately, and the rest of the line is skipped
@@ -731,27 +740,18 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 : STR" ( redefine, if not in compile mode, error out )
     STATE @ 0= IF
-        ." ERROR: STR\" only valid in compile mode\n"
-        HANDLE_ERR ( error, restart )
-    THEN
-    [POSTPONE] STR" ( call into old STR" )
+        ." ERROR: STR\" only valid in compile mode\n" HANDLE_ERR
+    THEN [POSTPONE] STR" ( call into old STR" )
     ; IMMEDIATE
 
 ( we can finally make FIND and friends take advantage of error checking )
 : _CHECKED_FIND ( strp - cfa [ errors if not found ] )
     DUP ?FIND ?DUP IF
-        ( strp cfa )
-        NIP RETURN ( -- cfa )
-    THEN ( if not found: )
-    ( strp )
-    ." ERROR IN FIND: "
-        TELL  ( print offending token )
-        ." ?\n"
-    HANDLE_ERR
-    ;
+        ( strp cfa ) NIP RETURN ( -- cfa )
+    THEN ( strp -- ; if not found: )
+    ." ERROR IN FIND: " ( bad_strp ) TELL ." ?\n" HANDLE_ERR ;
 
-( patch FIND to use _CHECKED_FIND )
-' FIND ' _CHECKED_FIND PATCH
+' FIND ' _CHECKED_FIND PATCH ( patch default FIND )
 
 ( Upgrade : to error out if we call it in compile mode )
 : : ( does normal : things )
@@ -763,7 +763,6 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 ( ================== DEBUGGER  ====================== )
 
-
 1 VARIABLE DEBUG_STATE
 : YESDEBUG 1 DEBUG_STATE ! ;
 : NODEBUG 0 DEBUG_STATE ! ;
@@ -774,9 +773,9 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     ( drop first 2, so this returns straight up to debug )
     R> R> 2DROP
     ;
+
 : DEBUG
     DEBUG_STATE @ 0= IF RETURN THEN ( skip debugging if disabled )
-
     ." \n === ENTERING DEBUGGER ===\n"
     .S
     NEW_INTERPRET
@@ -815,7 +814,6 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 ( ==========  Arithmetic Test cases  ========= )
 : TESTCASE_START ; ( used to forget all temp testing functions )
-
 
 : U<SHOW ( a b -- )
     ( tries all permutations of comparison using U< )
@@ -982,33 +980,25 @@ TEST 63 EXPECT" 2-dim loop"
 FORGET' TEST
 
 ( ================== INTROSPECTION/DISASSEMBLY  ====================== )
+
+: SMALLINT? ( n -- b ) -128 128 WITHIN ;
 HEX
-
-: BETWEEN ( x a b -- 1/0 )
-    ( return 1 if a < x < b )
-    -ROT ( b x a )
-    OVER < ( b x a<x )
-    -ROT ( a<x b x )
-    > ( a<x b>x )
-    AND ;
-
 ( some regions of memory are memory-mapped control units, and even
-  reading them can break stuff. Lets just say 0x01 to 0x04 are unsafe  )
-: ISUNSAFEPTR ( ptr -- 1/0 )
-    DUP 0 > SWAP 40 < AND ;
+  reading them can break stuff. Lets just say 0x01 to 0x40 are unsafe  )
+: ISUNSAFEPTR ( ptr -- 1/0 ) 8 21 WITHIN ;
 
 ( some things we shouldn't even bother dissassembling, since all possible words
   are greater than this. Also ignore small negative integers )
 ( - stacks and stack pointers start at 0x200
   - forth inner interpreter starts at 0x800, main forth words soon after )
-: BELOWALLWORDS ( ptr -- 1/0 )
-    DUP -FF >= SWAP 200 <= AND ;
+: BELOWALLWORDS ( ptr -- b ) -0FF 200 WITHIN ;
 
 : -16ALIGN ( ptr -- aligned(ptr) ) FFF0 AND ; ( rounds down )
 : 16ALIGN  ( ptr -- alignedptr ) 15 + -16ALIGN ; ( rounds up )
 : -8ALIGN ( ptr -- a(ptr) ) FFF8 AND ;
 : 8ALIGN  ( ptr -- a(ptr) ) 7 + -8ALIGN ;
 DECIMAL
+
 
 ( basic: just prints them out )
 : DUMP ( ptr len -- )
@@ -1124,8 +1114,20 @@ DECIMAL
         DROP ." BRANCH"
     ELSE DUP LW_0BRANCH = IF ( xt )
         DROP ." 0BRANCH"
+    ELSE DUP LW_DO = IF ( xt )
+        DROP ." DO"
+    ELSE DUP LW_+LOOP = IF ( xt )
+        DROP ." +LOOP"
+    ELSE DUP LW_-LOOP = IF ( xt )
+        DROP ." -LOOP"
+    ELSE DUP $NEXT = IF ( xt )
+        DROP ." $NEXT"
+    ELSE DUP $RUN = IF ( xt )
+        DROP ." $RUN"
     ELSE DUP ISPRINTABLE IF ( if is ascii )
         C' ' EMIT EMIT C' ' EMIT
+    ELSE DUP SMALLINT? IF ( if is a non ascii number )
+        SPACE .
     ELSE DUP BELOWALLWORDS IF ( xt )
         DROP ( if small constant, just dont print anything )
     ELSE ( xt )
@@ -1134,43 +1136,66 @@ DECIMAL
         ELSE
             >WNA TELL
         THEN
-    THEN THEN THEN THEN THEN THEN THEN
+    THEN THEN THEN THEN THEN THEN THEN THEN THEN THEN THEN THEN THEN
     ." )"
     ( xt )
 
     R> BASE !  ( restore base )
     ;
 
+: PREVWORD ( addr - xt ) 1- @ ;
+: DS_OFFSET? ( addr - b ) PREVWORD
+    DUP LW_BRANCH  = IF DROP TRUE RETURN THEN
+    DUP LW_0BRANCH = IF DROP TRUE RETURN THEN
+    DUP LW_+LOOP   = IF DROP TRUE RETURN THEN
+    DUP LW_-LOOP   = IF DROP TRUE RETURN THEN
+    DROP FALSE RETURN ;
+: DS_LITVAL? ( addr - b ) PREVWORD LW_LIT = ;
+
+: SHOWOFFSET ( addr - ; shows offsets like "4   (->3BFe)" )
+    DUP @ 4 U.R
+    DUP @ 0> IF ." (->" ELSE ." (<-" THEN
+    DUP @ + ( jump_tgt ) 4 U.R ." )" ;
+
+: DIS1 ( addr -- )
+    DUP 5 U.R ." : " ( print addr: )
+    DUP ISUNSAFEPTR IF DROP ." unsafe\n" RETURN THEN
+    DUP DS_OFFSET? IF
+        ( addr ) SHOWOFFSET NL
+    ELSE
+        ( addr ) @ SHOW NL
+    THEN
+    ;
+
 : DISASSEMBLE ( addr len -- )
     BASE @ HEX -ROT
     OVER + SWAP ( end start )
-    ?DO  I> 5 U.R  ( print addr: )
-        ." : "
-        I> @ SHOW NL ( show word at addr )
-    ?LOOP
+    ?DO I> DIS1 ?LOOP
     BASE ! ;
 
+'EXIT VARIABLE DIS_END ( stop when we hit this )
+48 VARIABLE DIS_MAX ( max length to disassemble )
+
+: SAFE@ ( p - v ) DUP ISUNSAFEPTR IF DROP 0 ELSE @ THEN ;
+: DIS_TO_END ( addr -- )
+    BASE @ HEX SWAP
+    DIS_MAX @ PL>LB ( end start ) DO
+        I> DIS1
+        I> SAFE@ DIS_END @ = IF LEAVE THEN
+    LOOP
+
+    BASE ! ;
+
+
+: NOTWORD ( xt -- b ) DUP SMALLINT? SWAP @ SMALLINT? OR ; ( xt small int or cw small int )
 : ISPRIMARY ( xt -- 1/0 )
     ( returns 1 if xt is a primary word, ie *CFA = CFA+1 )
     DUP @ 1- = ; ( cfa == *cfa-1 )
-
 : SEE ( xt -- )
-    DUP ABS 128 <  ( if xt small integer )
-    OVER @ ABS 128 < OR ( or cw is small integer )
-    IF
-        ." (not a word?)\n" ( probably not a word )
-        RETURN
-    THEN
-    ( TODO: integrate with show? so can use lost-words, etc )
-
-    ." === "
-    DUP SHOW NL ( print out "word (desc)" )
-
-    DUP ISPRIMARY IF
-        ." ASM \n"
-    THEN
-
-    ( xt ) 32 DISASSEMBLE
+    ." === " DUP SHOW ( print out "=== word (desc)" )
+    DUP NOTWORD IF ." : not a word?\n" ( xt ) DROP RETURN THEN
+    DUP ISPRIMARY IF ." : ASM" $NEXT DIS_END ! ELSE 'EXIT DIS_END ! THEN
+    NL ( xt ) DIS_TO_END
     ;
 
 ( ================== RETURN STACK INTROSPECTION/DISASSEMBLY  ====================== )
@@ -1182,13 +1207,12 @@ DECIMAL
 
 ( local used in WRA> )
 0 VARIABLE TESTRA
-
 : ISRAINWORD ( laterwha currwha -- 1/0 ; [ra in TESTRA] )
     ( returns true if RA could be part of currwha word
       laterwha > currwha )
       >CFA SWAP ( currcfa laterwha )
       TESTRA @ -ROT ( ra currcfa laterwha )
-      BETWEEN ;
+      WITHIN ;
 
 ( error sentinel for WRA> )
 : WRA_ERR ( -- WHA:WRA_ERR ) [ WIP @ #, ] ; ( pushes own wha )
@@ -1208,10 +1232,6 @@ DECIMAL
         ( == prevwha currwha )
     WEND ( wha wha )
     2DROP WRA_ERR ;
-
-: AB_TO_ALEN ( a b -- a b-a )
-    OVER - ;
-
 
 ( ==== RSHOW: format return addresses informatively )
 : RSHOW_1 ( ra wha - ra )
@@ -1379,11 +1399,6 @@ HEX
 
 ( constants for binary output )
 2 CONSTANT $ENTRY ( address of entrypoint )
-( addresses of ASM vars / labels )
-800 CONSTANT $NWA
-800 CONSTANT $NEXT
-810 CONSTANT $CWA
-810 CONSTANT $RUN
 
 : B$?   ( -- )      CURRP @ 1+ B, ; ( asm `?` )
 : B$OP  ( a b -- )  SWAP B, B, B$? ; ( asm `a b ?` )
