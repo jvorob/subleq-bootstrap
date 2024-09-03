@@ -230,13 +230,9 @@ DECIMAL
         KEY ( depth char -- )
         DUP '(' = IF ( depth char )
             DROP 1+ ( depth+1 )
-        ELSE
-            DUP ')' = IF ( depth char )
-                DROP 1- ( depth-1)
-            ELSE
-                DROP
-            THEN
-        THEN
+        ELSE DUP ')' = IF ( depth char )
+            DROP 1- ( depth-1)
+        ELSE DROP THEN THEN
         ( depth )
     WEND
     DROP ( )
@@ -290,23 +286,19 @@ DECIMAL
     R> DROP ( RS: end )
     R@ >R >R ( RS: end end ra ) ;
 
-( === loop helpers === )
-: STRBOUNDS ( strp -- &str_end &str[0] )
-    DUP @ ( strp len -- )
-    OVER + 1+ ( strp strend )
-    SWAP 1+ ( strend str[0] )
-    ;
+( ========== MORE MATH HELPERS ========= )
+
+: STREND ( strp -- endp(exc) ) DUP @ + 1+ ;
+: STRBOUNDS ( strp -- &str_end &str[0] ) DUP STREND SWAP 1+ ;
+
+: ABS DUP 0< IF NEG THEN ;
 
 ( ========== OUTPUT . and friends ========= )
-
-
 
 : SPACES ( n -- [ outputs n spaces, min 0 ] )
     BEGIN DUP 0> WHILE SPACE 1-
     WEND ( n )
     DROP ;
-
-: ABS DUP 0< IF NEG THEN ;
 
 : DIGASCII ( dig -- [outputs ascii] )
     DUP 36 >= IF ( n )
@@ -319,14 +311,12 @@ DECIMAL
         DROP C' ?
     ;
 
-
 : CSTACKSHOW C' : EMIT DEPTH DIGASCII EMIT SPACE  ;
 : U.R  ( number width -- ; prints out unsigned,
     rpadded to width )
     ( we're going to push the digits onto the stack, LSD on bottom )
 
     SWAP ( width is going to be under all this mess )
-
 
     -1 SWAP  ( push -1 as sentinel )
     BEGIN ( width -1 [..digits] rest )
@@ -355,28 +345,15 @@ DECIMAL
     - SPACES
     ;
 
-: .R ( number width -- prints signed, padded to width )
-    OVER 0< IF ( if number negative )
-        C' - EMIT ( print '-' )
-        1-       ( decrement width (we have '-') )
-        SWAP NEG ( negate number )
-        SWAP ( number width )
-    THEN U.R ;
+: U. ( n -- ) 0 U.R SPACE ;
 
-: U. ( number -- prints out unsigned, then a space )
-    0 U.R ( prints unpadded )
-    SPACE ; ( add a space )
-
-
-: . ( number )
-    DUP 0< IF
-        C' - EMIT ( print '-' )
-        NEG  ( negate number )
-    THEN U. ;
-
+: SIGNR ( n width -- n w | -n w-1 ) OVER 0< IF C' - EMIT 1- SWAP NEG SWAP THEN ;
+: .R ( number width -- [prints signed, padded to width] ) SIGNR U.R ;
+: . ( number ) 0 .R ;
 : ? ( addr -- ) @ . ;
 
 DECIMAL
+( . was bugged for a while with negatives and such, this was a stopgap measure: )
 : TOP4EMIT ( n -- [ prints top nibble] ) 12 U>> DIGASCII EMIT ;
 : XU.4 ( n -- [prints n properly, in hex] )
     DUP TOP4EMIT 4 <<
@@ -1048,12 +1025,8 @@ DECIMAL
     ." ISWHA NOT IMPL" HANDLE_ERR ;
 
 
-: CFA_MATCHES ( cfa ptr -- 1/0 )
-    ( returns 1 if ptr points to the name string of cfa )
-    ( strp@ gives len, strp+strp@ points to end of name, str+strp@+1 is cfa )
-    DUP @ 1 ( cfa p p@ 1 )
-    + + ( cfa strend+1 )
-    = ;
+( returns 1 if ptr points to the name string of same word as cfa )
+: CFA_MATCHES ( cfa strp? -- b ) STREND ( cfa potential_cfa ) = ;
 
  ( used when CFA couldn't find an address. Pushes its own cfa )
 : CFA_ERR [ LW_LIT , WIP @ , ] ;
@@ -1201,7 +1174,7 @@ DECIMAL
 ( ================== RETURN STACK INTROSPECTION/DISASSEMBLY  ====================== )
 
 ( first attempt )
-: RSP@ ( -- rsp [at time of caller] )
+: RSP@ ( -- rsp [ of caller] )
     RSP_ @ NEG 1+ ; ( skip our own RSP entry? )
 
 
@@ -1278,13 +1251,10 @@ DECIMAL
     ?LOOP
     R> BASE ! ;
 
-: .RS ( -- prints return stack)
+: .RS ( -- [prints return stack])
     RSP@ 1+ ( rsp ; ignore own RA )
-    ." === RSP: "
-    DUP U. NL ( rsp ; print rsp )
-    ( rsp )
-    RS0  ( rsp rs0 )
-    RSDUMP ;
+    ." === RSP: " DUP U. NL
+    ( rsp ) RS0 RSDUMP ;
 
 HEX
 : .DS ( -- show the data stack a bit )
