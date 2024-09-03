@@ -40,7 +40,7 @@ SILENT
 
 
 : SP@ ( a -- a ptr_to_a ) NOSP_ @ NEG ;
-: STACKCOUNT ( - num_items_on_stack)
+: DEPTH ( - num_items_on_stack)
     SP@  ( call this first to get clean SP val )
     DS0 SWAP  ( stack_base, nosp )
     - ( base-sp )
@@ -306,7 +306,7 @@ SILENT
     ;
 
 
-: CSTACKSHOW C' : EMIT STACKCOUNT DIGASCII EMIT SPACE  ;
+: CSTACKSHOW C' : EMIT DEPTH DIGASCII EMIT SPACE  ;
 : U.R  ( number width -- ; prints out unsigned,
     rpadded to width )
     ( we're going to push the digits onto the stack, LSD on bottom )
@@ -396,7 +396,7 @@ DECIMAL
 
 
 : .S ( prints all items on the stack )
-    STACKCOUNT . C' : EMIT SPACE
+    DEPTH . C' : EMIT SPACE
     ( we want to print ds0 first, so -LOOP. Include SP@ )
     SP@ 1- DS0  ( DS0 downto and incl SP@ )
     2DUP >= IF 2DROP RETURN THEN
@@ -592,7 +592,7 @@ DECIMAL
 : PROMPT  ( prints out "[n] > " )
     C' [ EMIT
     BASE @ DECIMAL  ( switch to decimal, save base )
-    STACKCOUNT 1- .  ( subtract 1 to account for saved BASE )
+    DEPTH 1- .  ( subtract 1 to account for saved BASE )
 
     C' > EMIT SPACE
     BASE ! ( restore base )
@@ -652,9 +652,9 @@ DECIMAL
     ;
 
 : ?STACK ( checks stacks for underflow, errors out if found )
-    STACKCOUNT 0< IF
+    DEPTH 0< IF
         STR" DS UNDERFLOW: " TELL
-            STACKCOUNT .
+            DEPTH .
             STR" items on stack" TELL NL
         HANDLE_ERR
     THEN ;
@@ -1331,14 +1331,14 @@ DECIMAL
 
 : ASSERT_INIT ( n -- [ saves 1 val to rs ] )
     ( we're saying "there's 1 thing on the stack rn, save that " )
-    ( so, save stackcount -n (n itself will be baked in, but that's fine ) )
-    STACKCOUNT SWAP - ( stackcount-n )
+    ( so, save depth -n (n itself will be baked in, but that's fine ) )
+    DEPTH SWAP - ( depth-n )
     R> SWAP >R >R ( push to return stack, under own RA )
     ;
 
 : ASSERT ( n -- [ errors if needed ] )
-   ( should error out if current STACKCOUNT-n differs from ASSERT_INIT time )
-   STACKCOUNT SWAP - ( curr_stackcount-n )
+   ( should error out if current DEPTH-n differs from ASSERT_INIT time )
+   DEPTH SWAP - ( curr_depth-n )
    R> R> ( stack-n ra old_stack-n )
    DUP -ROT ( stack-n old_stack-n ra old_stack-n )
    >R >R ( stack-n old_stack-n ; push others back )
