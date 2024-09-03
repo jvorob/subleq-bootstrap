@@ -561,16 +561,16 @@ DECIMAL
     BEGIN KEY '\N' = UNTIL ;
 
 : START_LOADING_FILE ( switches into bulkload mode )
-    NL STR" Loading until END_OF_FILE\n" TELL
+    NL ." Loading until END_OF_FILE\n"
     1 BULKLOAD ! ;
 
 : END_OF_FILE ( switches out of bulkload mode)
-    STR" Finished Loading" TELL NL
+    ." Finished Loading\n"
     0 BULKLOAD ! ;
 
 : LOAD_DEBUG ( skips rest of file, breaks out of bulk mode )
     SKIP_TO_EOF END_OF_FILE
-    STR" DEBUG: Skipped rest of file\n" TELL ;
+    ." DEBUG: Skipped rest of file\n" ;
 
 
 ( Interpreter v2: key features:
@@ -600,9 +600,9 @@ DECIMAL
 
 : RESTART ( ??? )
     BASE @ 0= IF ( if starting first time )
-        STR" Interpreter v0.2: starting" TELL NL
+        ." Interpreter v0.2: starting\n"
     ELSE ( restarting )
-        STR" RESTART (v0.2)" TELL NL
+        ." RESTART (v0.2)\n"
     THEN
 
     ( TODO: reset BASE )
@@ -618,7 +618,7 @@ DECIMAL
     ( INTERPETER @ EXECUTE )
     INTERPRET ( calls old INTERPRET, but we'll patch over it )
 
-    STR" ERR: Returned from interpreter" TELL
+    ." ERR: Returned from interpreter"
     ;
 
 : HANDLE_ERR
@@ -637,12 +637,12 @@ DECIMAL
 
     ( If we were bulk-loading a file, errors should-early exit the whole thing)
     BULKLOAD @ IF
-        STR" ERROR LOADING FILE\n" TELL
-        STR" - Last word was: " TELL
+        ." ERROR LOADING FILE\n"
+        ." - Last word was: "
             LATEST @ >WNA TELL NL ( print last word )
-        STR" - Skipped rest of file (" TELL
+        ." - Skipped rest of file ("
             SKIP_TO_EOF
-            . STR" lines)\n" TELL
+            . ." lines)\n"
         0 BULKLOAD ! ( switch back to interactive mode )
     ELSE SKIP_TO_NL
 
@@ -653,9 +653,9 @@ DECIMAL
 
 : ?STACK ( checks stacks for underflow, errors out if found )
     DEPTH 0< IF
-        STR" DS UNDERFLOW: " TELL
+        ." DS UNDERFLOW: "
             DEPTH .
-            STR" items on stack" TELL NL
+            ." items on stack" NL
         HANDLE_ERR
     THEN ;
 
@@ -690,7 +690,7 @@ DECIMAL
                 DROP
                 BULKLOAD @ 0= IF
                     STATE @ 0= IF
-                        SPACE STR" OK" TELL NL
+                        SPACE ." OK" NL
                         PROMPT
                     THEN
                 THEN
@@ -712,7 +712,7 @@ DECIMAL
 ( NOTE: this needs to happen all at once, so wrap in a temp upgrade word )
 : UPGRADE
     ( Patch in new interpreter, switch to bulk load mode )
-    STR" Upgrading interpreter to v0.2\n" TELL
+    ." Upgrading interpreter to v0.2\n"
 
     ( ' NEW_INTERPRET INTERPETER ! ( patch in interp ) )
     ( Overwrite interpret with our new one )
@@ -731,7 +731,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 : STR" ( redefine, if not in compile mode, error out )
     STATE @ 0= IF
-        STR" ERROR: STR\" only valid in compile mode\n" TELL
+        ." ERROR: STR\" only valid in compile mode\n"
         HANDLE_ERR ( error, restart )
     THEN
     [POSTPONE] STR" ( call into old STR" )
@@ -744,9 +744,9 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
         NIP RETURN ( -- cfa )
     THEN ( if not found: )
     ( strp )
-    STR" ERROR IN FIND: " TELL
+    ." ERROR IN FIND: "
         TELL  ( print offending token )
-        STR" ?\n" TELL
+        ." ?\n"
     HANDLE_ERR
     ;
 
@@ -756,7 +756,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 ( Upgrade : to error out if we call it in compile mode )
 : : ( does normal : things )
     STATE @ IF
-        STR" ERROR: : called while already in compile mode\n" TELL
+        ." ERROR: : called while already in compile mode\n"
         HANDLE_ERR ( restart )
     THEN [ ' : , ] ( call into old colon )
     ; IMMEDIATE
@@ -777,10 +777,10 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 : DEBUG
     DEBUG_STATE @ 0= IF RETURN THEN ( skip debugging if disabled )
 
-    STR" \n === ENTERING DEBUGGER ===\n" TELL
+    ." \n === ENTERING DEBUGGER ===\n"
     .S
     NEW_INTERPRET
-    STR" \n === LEAVING DEBUGGER ===\n" TELL
+    ." \n === LEAVING DEBUGGER ===\n"
     ;
 : [DEBUG] TAILCALL DEBUG ; IMMEDIATE
 
@@ -793,12 +793,12 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     TEMPSTR" -ROT ( strp a b )
     2DUP <> IF ( strp a b; if values differ from expected )
         ( f"ERROR ({errstr}), EXPECTED {a], GOT {b}" )
-        STR" ERROR (" TELL
+        ." ERROR ("
         ROT TELL ( ; print strp )
-        STR" ): EXPECTED " TELL
+        ." ): EXPECTED "
         ( a exp )
         .  ( a; print exp)
-        STR" , GOT " TELL
+        ." , GOT "
         . ( ; print a )
         NL
 
@@ -819,7 +819,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 : U<SHOW ( a b -- )
     ( tries all permutations of comparison using U< )
-    STR" UNSIGNED: a<b b<a a<a b<b: " TELL
+    ." UNSIGNED: a<b b<a a<a b<b: "
     ( a b )
     2DUP U< TF
     2DUP SWAP U< TF
@@ -828,8 +828,8 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     DROP ;
 
 : TESTFAIL ( a b -- [prints failing case, errs out] )
-    STR" TEST FAIL: (" TELL
-        2DUP SWAP X. X. STR" -- ): " TELL
+    ." TEST FAIL: ("
+        2DUP SWAP X. X. ." -- ): "
     ( a b ) U<SHOW NL
     HANDLE_ERR ;
 
@@ -861,7 +861,7 @@ HEX
 -7FFF 2   > TRUE EXPECT" -7FFF>2"  ( wraps thru 0x8000, unsigned)
 -7FF0 2   < TRUE EXPECT" -7FF0<2"  ( wraps thru 0, signed )
 
-TEMPSTR" === TESTING 8000:\n" TELL
+." === TESTING 8000:\n"
 8000 0<   TRUE  EXPECT" 8000 0<"
 8000 0<=  TRUE  EXPECT" 8000 0=<"
 8000 0>   FALSE EXPECT" 8000 0>"
@@ -875,7 +875,7 @@ TEMPSTR" === TESTING 8000:\n" TELL
 )
 
 HEX
-TEMPSTR" === NEAR ASSERTS (signed+unsigned):\n" TELL
+." === NEAR ASSERTS (signed+unsigned):\n"
 ( NEAR ASSERTS (all <, should work for both signed and unsigned) )
 0 1       2DUP TEST< TESTU<
 1 2       2DUP TEST< TESTU<
@@ -886,7 +886,7 @@ TEMPSTR" === NEAR ASSERTS (signed+unsigned):\n" TELL
 FFFE FFFF 2DUP TEST< TESTU<
 
 ( FAR COMPARISONS (unsigned only) )
-TEMPSTR" === FAR ASSERTS (U):\n" TELL
+." === FAR ASSERTS (U):\n"
 1 FFFF TESTU<
 0 7FFF TESTU<
 0 8000 TESTU<
@@ -897,7 +897,7 @@ TEMPSTR" === FAR ASSERTS (U):\n" TELL
 
 
 ( FAR COMPARISONS (signed only), all < )
-TEMPSTR" === FAR ASSERTS (signed):\n" TELL
+." === FAR ASSERTS (signed):\n"
 0     7FFF TEST<
 8001     0 TEST<
 8000    -1 TEST<
@@ -909,7 +909,7 @@ D000  4000 TEST<
 1     8000 TEST<
 
 
-TEMPSTR" === TESTING other 0cmp\n" TELL
+." === TESTING other 0cmp\n"
 0001 0<   FALSE EXPECT" 0001 0<"
 0001 0<=  FALSE EXPECT" 0001 0=<"
 0001 0>   TRUE  EXPECT" 0001 0>"
@@ -955,18 +955,18 @@ FORGET' TESTCASE_START ( forget all our temporary testing words )
 )
 0 VARIABLE V ( divisor )
 : /SHOW ( n v -- )
-    STR" ( " TELL
-    ( n v ) 2DUP SWAP X. X. STR" /MOD -- ) " TELL
+    ." ( "
+    ( n v ) 2DUP SWAP X. X. ." /MOD -- ) "
     DUP V !
     ( ( n v ) /MOD ) ( TODO: DEBUG: SIGNED? )
     ( n v ) U/MOD
     ( q r ) 2DUP SWAP  ( q r r q )
         C' Q EMIT X.
         C' R EMIT X.
-    ( q r ) STR" Undoing: " TELL
+    ( q r ) ." Undoing: "
     SWAP V @ * ( r q*v ) DUP X.
-    SWAP ( q*v r ) STR" + " TELL DUP X.
-    STR" = " TELL
+    SWAP ( q*v r ) ." + " DUP X.
+    ." = "
     ( q*v r ) + X.
     ;
 
@@ -1039,9 +1039,9 @@ DECIMAL
     SWAP ( end start ) DO
         ( print out "addr: val val val val..." )
         I> 5 U.R
-        STR" : " TELL ( curr end )
+        ." : " ( curr end )
         I> 8 DUMP    ( ; dump first 8 words )
-        STR"  === " TELL
+        ."  === "
         I> 8 + 8 DUMP ( ; dump next 8 words )
         NL
     16 +LOOP
@@ -1055,7 +1055,7 @@ DECIMAL
       work if add more interpreters though.
      check if link is also a wha? won't work recursively though, or might be 0 )
     ( rule out small addresses )
-    STR" ISWHA NOT IMPL" TELL HANDLE_ERR ;
+    ." ISWHA NOT IMPL" HANDLE_ERR ;
 
 
 : CFA_MATCHES ( cfa ptr -- 1/0 )
@@ -1112,30 +1112,30 @@ DECIMAL
     BASE @ >R HEX ( stash base )
 
     DUP 4 U.R ( print word )
-    STR" (" TELL
+    ." ("
 
     DUP DO_COLON = IF ( xt )
-        DROP STR" DO_COLON" TELL
+        DROP ." DO_COLON"
     ELSE DUP LW_LIT = IF ( xt )
-        DROP STR" LIT" TELL
+        DROP ." LIT"
     ELSE DUP LW_LITSTR = IF ( xt )
-        DROP STR" LITSTR" TELL
+        DROP ." LITSTR"
     ELSE DUP LW_BRANCH = IF ( xt )
-        DROP STR" BRANCH" TELL
+        DROP ." BRANCH"
     ELSE DUP LW_0BRANCH = IF ( xt )
-        DROP STR" 0BRANCH" TELL
+        DROP ." 0BRANCH"
     ELSE DUP ISPRINTABLE IF ( if is ascii )
         C' ' EMIT EMIT C' ' EMIT
     ELSE DUP BELOWALLWORDS IF ( xt )
         DROP ( if small constant, just dont print anything )
     ELSE ( xt )
         CFA>  DUP CFA_ERR = IF
-            DROP STR" ???" TELL
+            DROP ." ???"
         ELSE
             >WNA TELL
         THEN
     THEN THEN THEN THEN THEN THEN THEN
-    STR" )" TELL
+    ." )"
     ( xt )
 
     R> BASE !  ( restore base )
@@ -1145,7 +1145,7 @@ DECIMAL
     BASE @ HEX -ROT
     OVER + SWAP ( end start )
     ?DO  I> 5 U.R  ( print addr: )
-        STR" : " TELL
+        ." : "
         I> @ SHOW NL ( show word at addr )
     ?LOOP
     BASE ! ;
@@ -1158,16 +1158,16 @@ DECIMAL
     DUP ABS 128 <  ( if xt small integer )
     OVER @ ABS 128 < OR ( or cw is small integer )
     IF
-        STR" (not a word?)\n" TELL ( probably not a word )
+        ." (not a word?)\n" ( probably not a word )
         RETURN
     THEN
     ( TODO: integrate with show? so can use lost-words, etc )
 
-    STR" === " TELL
+    ." === "
     DUP SHOW NL ( print out "word (desc)" )
 
     DUP ISPRIMARY IF
-        STR" ASM \n" TELL
+        ." ASM \n"
     THEN
 
     ( xt ) 32 DISASSEMBLE
@@ -1228,7 +1228,7 @@ DECIMAL
 
 : RSHOW_2 ( ra -- ra )
     ( prints instruction at return address "= [ xxxx (WORD) ]" )
-    STR" = [" TELL
+    ." = ["
     DUP @ SHOW  ( print using show )
     C' ] EMIT
     ;
@@ -1260,7 +1260,7 @@ DECIMAL
 
 : .RS ( -- prints return stack)
     RSP@ 1+ ( rsp ; ignore own RA )
-    STR" === RSP: " TELL
+    ." === RSP: "
     DUP U. NL ( rsp ; print rsp )
     ( rsp )
     RS0  ( rsp rs0 )
@@ -1270,7 +1270,7 @@ HEX
 : .DS ( -- show the data stack a bit )
     SP@  ( sp )
     BASE @ HEX SWAP ( oldbase, sp )
-    STR" ====== SP: " TELL
+    ." ====== SP: "
         DUP . NL
     10 - ( oldbase sp-0x10 )
     DS0 ( sp-0x10, DS0 )
@@ -1283,14 +1283,14 @@ DECIMAL
 
 : HANDLE_EXC ( rsp nwa cwa code -- )
     HEX
-    DUP STR" Exception: " TELL . NL DROP
-    STR" CWA: " TELL SHOW NL
-    STR" NWA: " TELL RSHOW NL
-    STR" === RSP: " TELL DUP . NL
+    DUP ." Exception: " . NL DROP
+    ." CWA: " SHOW NL
+    ." NWA: " RSHOW NL
+    ." === RSP: " DUP . NL
     ( rsp )
     RS0 RSDUMP ( DUMP RETURN STACK )
 
-    STR" === STACK) " TELL NL
+    ." === STACK) " NL
     .S
     0 IN_EXC !
     HANDLE_ERR ;
@@ -1316,13 +1316,13 @@ DECIMAL
     DROP ;
 
 : GREET
-    STR" == Core Forth Bootstrapping Complete ==" TELL NL
+    ." == Core Forth Bootstrapping Complete ==" NL
     SPACE NUMWORDS .
-    STR" words defined" TELL NL
-    STR"  DP: 0x" TELL
+    ." words defined" NL
+    ."  DP: 0x"
         BASE @ HEX DP @ . BASE ! ( save base, print DP in hex )
         NL
-    STR"  Latest word: " TELL
+    ."  Latest word: "
         LATEST @ >WNA TELL NL
     ;
 
@@ -1344,7 +1344,7 @@ DECIMAL
    >R >R ( stack-n old_stack-n ; push others back )
    - ( delta, how many more/less elements than expected )
    DUP 0<> IF ( if nonzero, error out )
-           STR" STACK ASSERT ERR: " TELL
+           ." STACK ASSERT ERR: "
            ( delta )
            . NL ( print number and end line )
            HANDLE_ERR ( restarts )
