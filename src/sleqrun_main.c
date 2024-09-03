@@ -173,7 +173,7 @@ int step(struct vm_state *vm) {
 
         // === Standard asm variables, useful for debugging assembler
         SHOW_VAR_NEG(X,X_ADDR);
-        //SHOW_VAR_NEG(Y,Y_ADDR);
+        SHOW_VAR_NEG(Y,Y_ADDR);
         SHOW_VAR_SGN(V, 0x22);
         SHOW_VAR_SGN(W, 0x23);
         SHOW_VAR_NEG(P1, 0x24);
@@ -184,7 +184,7 @@ int step(struct vm_state *vm) {
 
         // === Forth vars
         SHOW_VAR(NWA, 0x800);
-        SHOW_VAR(CWA, 0x810);
+        //SHOW_VAR(CWA, 0x810);
         //SHOW_VAR(TOS, 0x180);
         //SHOW_VAR_NEG(NOSP, 0x181);
         //SHOW_VAR_NEG(RSP, 0x182);
