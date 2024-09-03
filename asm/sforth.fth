@@ -715,6 +715,7 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 ( ================== NEW INTERPRETER EXISTS! ====================== )
 ( fix up old funcs to take advantage of error handling )
 
+
 : STR" ( redefine, if not in compile mode, error out )
     STATE @ 0= IF
         ." ERROR: STR\" only valid in compile mode\n" HANDLE_ERR
@@ -730,12 +731,30 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 ' FIND ' _CHECKED_FIND PATCH ( patch default FIND )
 
+( === stack pointer assert: )
+: CSP_FAIL ( exp_depth -- )
+    ." CSP ERROR: expected depth=" . NL
+    ." Got depth=" .S HANDLE_ERR ;
+
+0 VARIABLE CSP:
+0 VARIABLE CSP ( for manual use )
+: CSP! DEPTH CSP ! ;
+: CSP? DEPTH CSP @ <> IF CSP @ CSP_FAIL THEN ;
+
 ( Upgrade : to error out if we call it in compile mode )
 : : ( does normal : things )
     STATE @ IF
-        ." ERROR: : called while already in compile mode\n"
-        HANDLE_ERR ( restart )
-    THEN [ ' : , ] ( call into old colon )
+        ." ERROR: : called while already in compile mode\n" HANDLE_ERR THEN
+    ( defer to old colon )
+    [POSTPONE] :
+    DEPTH CSP: !
+    ; IMMEDIATE
+
+: ;
+    STATE @ 0= IF
+        ." ERROR: ; called while not in compile mode\n" HANDLE_ERR THEN
+    DEPTH CSP: @ <> IF CSP: @ CSP_FAIL THEN
+    [POSTPONE] ;
     ; IMMEDIATE
 
 ( ================== DEBUGGER  ====================== )
@@ -1315,31 +1334,6 @@ DECIMAL
     ."  Latest word: "
         LATEST @ >WNA TELL NL
     ;
-
-
-( ==== ASSERTS? NOT WORKING )
-
-: ASSERT_INIT ( n -- [ saves 1 val to rs ] )
-    ( we're saying "there's 1 thing on the stack rn, save that " )
-    ( so, save depth -n (n itself will be baked in, but that's fine ) )
-    DEPTH SWAP - ( depth-n )
-    R> SWAP >R >R ( push to return stack, under own RA )
-    ;
-
-: ASSERT ( n -- [ errors if needed ] )
-   ( should error out if current DEPTH-n differs from ASSERT_INIT time )
-   DEPTH SWAP - ( curr_depth-n )
-   R> R> ( stack-n ra old_stack-n )
-   DUP -ROT ( stack-n old_stack-n ra old_stack-n )
-   >R >R ( stack-n old_stack-n ; push others back )
-   - ( delta, how many more/less elements than expected )
-   DUP 0<> IF ( if nonzero, error out )
-           ." STACK ASSERT ERR: "
-           ( delta )
-           . NL ( print number and end line )
-           HANDLE_ERR ( restarts )
-   THEN ( delta )
-   DROP ;
 
 ( ===================== OUTPUT SELF AS A BINARY ==================== )
 
