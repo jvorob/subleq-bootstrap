@@ -95,6 +95,7 @@ SILENT
 : ALLOT DP +! ;
 : #, ( n -- ; compiles TOS as a literal number ) LW_LIT , , ;
 : ' ( - CFA ; lookup CFA of next token ) TOKEN FIND >CFA ;
+: ['] ' #, ; IMMEDIATE
 ( NOTE: later we update ' so it quotes at compile time as well )
 
 : >WNA ( WHA -- strp ) 2+ ;  ( gives str pointer to a word's name )
@@ -155,6 +156,12 @@ DECIMAL
 )
 : [POSTPONE] ( <reads immediate word> -- <compiles it for later> )
     ' , ; IMMEDIATE
+
+( compiles instructions to compile this word )
+: [COMPILE]
+    ' #, ( compile literal for the quoted token )
+    ['] , , ( compile in a , to enclose it )
+    ; IMMEDIATE
 
 : RECURSE ( -- [compiles word being currently defined] )
     WIP @ >CFA , ; IMMEDIATE
@@ -251,15 +258,14 @@ DECIMAL
 : +LOOP      LW_+LOOP , CFRESOLVE< ; IMMEDIATE
 : -LOOP      LW_-LOOP , CFRESOLVE< ; IMMEDIATE
 
-: ['] ' #, ; IMMEDIATE
 ( ?DO ?LOOP compiles as `2DUP < IF DO .. LOOP ELSE 2DROP THEN` )
 : ?DO ( -- marker-IF, marker-DO )
-    ['] 2DUP , ['] > , [POSTPONE] IF
+    [COMPILE] 2DUP [COMPILE] > [POSTPONE] IF
     [POSTPONE] DO
     ; IMMEDIATE
 : ?+LOOP ( marker-IF marker-DO -- )
     [POSTPONE] +LOOP
-    [POSTPONE] ELSE ['] 2DROP , [POSTPONE] THEN
+    [POSTPONE] ELSE [COMPILE] 2DROP [POSTPONE] THEN
     ; IMMEDIATE
 : ?LOOP ( marker-IF marker-DO -- )
     1 #, [POSTPONE] ?+LOOP
@@ -273,7 +279,7 @@ DECIMAL
     FLIP?DO ( switch test to use < instead of > )
     [POSTPONE] -LOOP
     [POSTPONE] ELSE
-        ['] 2DROP , [POSTPONE] THEN
+        [COMPILE] 2DROP [POSTPONE] THEN
     ; IMMEDIATE
 
 
@@ -429,12 +435,14 @@ DECIMAL
 : UPPER ( strp -- strp [ uppercases the string] )
     DUP STRBOUNDS ?DO I> @ ASCIIUPPER I> ! ?LOOP ;
 
+( === NOTE: actually I think maybe I don't want' this? cleaner to ['], and we need ' for compile words?
 ( update quote ' to be flexible, working in normal mode or compile mode
   also looks up by uppercasing )
 : ' ( <finds next word> -- <pushes / compiles CFA > )
     TOKEN UPPER FIND >CFA ( lookup using old func )
     STATE @ IF #, THEN
     ; IMMEDIATE
+)
 
 
 ( TODO
@@ -487,7 +495,7 @@ DECIMAL
 : ." ( [reads string] -- ; tells it (VERSATILE) )
     STATE @ IF
         [POSTPONE] STR"
-        ' TELL ,
+        [COMPILE] TELL
     ELSE
         TEMPSTR" TELL
     THEN ; IMMEDIATE
@@ -702,7 +710,7 @@ DECIMAL
 
     ( ' NEW_INTERPRET INTERPETER ! ( patch in interp ) )
     ( Overwrite interpret with our new one )
-    ' INTERPRET ' NEW_INTERPRET PATCH
+    ['] INTERPRET ['] NEW_INTERPRET PATCH
 
     0 BASE ! ( clear base so we hit the START logic )
     RESTART  ( restart into new interp, switch to load mode )
@@ -1048,7 +1056,7 @@ DECIMAL
 : CFA_MATCHES ( cfa strp? -- b ) STREND ( cfa potential_cfa ) = ;
 
  ( used when CFA couldn't find an address. Pushes its own cfa )
-: CFA_ERR [ LW_LIT , WIP @ , ] ;
+: CFA_ERR [ WIP @ #, ] ;
 : CFA> ( cfa -- wha OR CFA_ERR )
 
     ( don't even bother checking for words if it's a
@@ -1397,7 +1405,7 @@ HEX
 
 : MAKEINIT 2000 BLANKTILL ( asm entrypoint )
     $ENTRY $ENTRY B$OP   05D $ENTRY B$OP ( overwrite entry with 0D )
-    ' START 1+ B$JMP ( jump to body of START )
+    ['] START 1+ B$JMP ( jump to body of START )
     ;
 
 : MAKEBINARY
