@@ -355,7 +355,7 @@ DECIMAL
 
 : SIGNR ( n width -- n w | -n w-1 ) OVER 0< IF C' - EMIT 1- SWAP NEG SWAP THEN ;
 : .R ( number width -- [prints signed, padded to width] ) SIGNR U.R ;
-: . ( number ) 0 .R ;
+: . ( number ) 0 .R SPACE ;
 : ? ( addr -- ) @ . ;
 
 DECIMAL
