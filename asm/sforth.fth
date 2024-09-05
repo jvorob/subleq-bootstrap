@@ -292,6 +292,67 @@ DECIMAL
     R> DROP ( RS: end )
     R@ >R >R ( RS: end end ra ) ;
 
+( ================== CASE...OF..ENDOF..ENDCASE ======================= )
+( NOTE === HOW SHOULD DEFAULT BE HANDLED?
+    X @ CASE
+        1 OF ... ENDOF
+    ENDCASE ( should drop X )
+    X @ CASE
+        1 OF ... ENDOF
+        DEFAULT ." other: " .  ENDOF
+    ENDCASE ( endcase still drops X, but we shouln't reach it? )
+        ." other:" . DEFAULT ? ( cancels out the DROP? modifies ENDCASE? )
+)
+
+0 VARIABLE #CASES
+: CASE ( saves #CASES, inits to 0 )
+    #CASES @
+    0 #CASES ! ; IMMEDIATE
+
+: OF [COMPILE] OVER [COMPILE] = [POSTPONE] IF [COMPILE] DROP ; IMMEDIATE
+: ENDOF [POSTPONE] ELSE   1 #CASES +! ; IMMEDIATE
+
+( compiles #CASES THENs, restores #CASES )
+: ENDCASE ( old_#case else_mark else_mark ... else_mark -- )
+    [COMPILE] DROP
+    #CASES @ 0 ?DO [POSTPONE] THEN ?LOOP
+    #CASES ! ; IMMEDIATE
+
+: DEFAULT ( used like 'DEFAULT (val) ... ENDOF ENDCASE' )
+    1 #, [POSTPONE] IF ; IMMEDIATE
+
+( ( == Example use: )
+: TESTCASES
+    ( x ) CASE
+        1 OF ." 1:" ENDOF
+        2 OF ." 2:" ENDOF
+        3 OF ." 3:" ENDOF
+        DUP ISPRINTABLE IF EMIT ENDOF
+        DEFAULT ." def: " . ENDOF
+    ENDCASE ;
+)
+( == equivalent to:
+    ( x )
+        1 OVER = IF DROP ... ELSE
+        2 OVER = IF DROP ... ELSE
+        3 OVER = IF DROP ... ELSE
+        DUP ISASCII IF ... ELSE
+        1 IF ." def: " . ELSE
+        DROP
+    THEN THEN THEN THEN
+)
+
+( === Alt definition for OF: more compact but slower
+      if coded in ASM would be very fast.
+: _OF OVER = IF
+        DROP  ( drop switch var )
+        R> 1+ >R ( skip branch )
+    ELSE R> DUP @ + >R ( take branch, add offset )
+    THEN ;
+: OF ( -- marker_of> ) [COMPILE] _OF CFMARK> ; IMMEDIATE
+)
+
+
 ( ========== MORE MATH HELPERS ========= )
 
 : STREND ( strp -- endp(exc) ) DUP @ + 1+ ;
