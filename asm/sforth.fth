@@ -490,7 +490,7 @@ DECIMAL
   - nested comments
 )
 DECIMAL
-: ISPRINTABLE ( c -- 1/0 ) 31 126 WITHIN= ;
+: ISPRINTABLE ( c -- 1/0 ) 32 126 WITHIN= ;
 
 ( update C' to work in NORMAL mode as well )
 : C' CHAR   STATE @ IF #, THEN ; IMMEDIATE
