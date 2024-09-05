@@ -4,6 +4,7 @@ SILENT
 : ] 1 STATE ! ;
 : CHAR TOKEN 1+ @ ;
 : C' LW_LIT , CHAR , ; IMMEDIATE
+: [CHAR] LW_LIT , CHAR , ; IMMEDIATE
 : (  KEY C' ) =
     [ LW_0BRANCH , -5 , ] ; IMMEDIATE
 ( We have comments now! not nested though )
@@ -1147,6 +1148,8 @@ DECIMAL
 
 
 
+: SHOWADDR ( addr -- ) 5 U.R ." : " ;
+
 : SHOW ( xt -- )
     ( tries to show a word a little bit? )
     BASE @ >R HEX ( stash base )
@@ -1200,29 +1203,48 @@ DECIMAL
     DUP @ + ( jump_tgt ) 4 U.R ." )" ;
 
 : DIS1 ( addr -- )
-    DUP 5 U.R ." : " ( print addr: )
+    DUP SHOWADDR
     DUP ISUNSAFEPTR IF DROP ." unsafe\n" RETURN THEN
     DUP DS_OFFSET? IF
-        ( addr ) SHOWOFFSET NL
+        ( addr ) SHOWOFFSET
     ELSE
-        ( addr ) @ SHOW NL
+        ( addr ) @ SHOW
     THEN
     ;
 
 : DISASSEMBLE ( addr len -- )
     BASE @ HEX -ROT
     OVER + SWAP ( end start )
-    ?DO I> DIS1 ?LOOP
+    ?DO I> DIS1 NL ?LOOP
     BASE ! ;
 
 'EXIT VARIABLE DIS_END ( stop when we hit this )
-48 VARIABLE DIS_MAX ( max length to disassemble )
+64 VARIABLE DIS_MAX ( max length to disassemble )
 
 : SAFE@ ( p - v ) DUP ISUNSAFEPTR IF DROP 0 ELSE @ THEN ;
+
+: I+! ( n -- ) [COMPILE] R> [COMPILE] + [COMPILE] >R ; IMMEDIATE
+
+: SHOWSTR ( strp -- ; print as "STR: (5 "Hello")" )
+    ." STR ("  DUP @ . ( show len )
+    [CHAR] " EMIT
+    ( strp ) TELL   ." \")" ;
+
 : DIS_TO_END ( addr -- )
     BASE @ HEX SWAP
     DIS_MAX @ PL>LB ( end start ) DO
-        I> DIS1
+        I> DIS1 NL
+
+        I> SAFE@ LW_LITSTR = IF ( print strings compactly )
+            1 I+!  ( advance to strlen field )
+            I> DUP SHOWADDR SHOWSTR
+            NL 7 SPACES ." ....\N"
+
+            ( advance I by length to skip string (no +1, loop will get it) )
+            I> @ I+!
+        THEN
+
+        ( check for end )
         I> SAFE@ DIS_END @ = IF LEAVE THEN
     LOOP
 
