@@ -496,7 +496,7 @@ DECIMAL
 : C' CHAR   STATE @ IF #, THEN ; IMMEDIATE
 
 : ISASCIILOWER ( c -- bool ) DUP C' a >= SWAP C' z <= AND ;
-: ASCIIUPPER DUP ISASCIILOWER IF [ 'A' C' a - #, ] + THEN ;
+: ASCIIUPPER DUP ISASCIILOWER IF [ 'A' CHAR a - #, ] + THEN ;
 : UPPER ( strp -- strp [ uppercases the string] )
     DUP STRBOUNDS ?DO I> @ ASCIIUPPER I> ! ?LOOP ;
 
@@ -1157,7 +1157,7 @@ DECIMAL
     DUP 4 U.R ( print word )
     ." ("
     ( xt ) CASE
-    DO_COLON   OF ." DO_COLON" ENDOF
+    DO_COLON   OF ." _:_"      ENDOF
     LW_LIT     OF ." LIT"      ENDOF
     LW_LITSTR  OF ." LITSTR"   ENDOF
     LW_BRANCH  OF ." BRANCH"   ENDOF
@@ -1167,7 +1167,8 @@ DECIMAL
     LW_-LOOP   OF ." -LOOP"    ENDOF
     $NEXT      OF ." $NEXT"    ENDOF
     $RUN       OF ." $RUN"     ENDOF
-    '\N'       OF ." '\\N'"     ENDOF
+    '\N'       OF ." '\\N'"    ENDOF
+    'EXIT      OF ." _;_"      ENDOF
     DUP ISPRINTABLE IF ( if is ascii )
         C' ' EMIT EMIT C' ' EMIT ENDOF
     DUP SMALLINT? IF ( if is a non ascii number )
