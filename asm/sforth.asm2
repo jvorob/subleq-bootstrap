@@ -507,7 +507,11 @@ TAILCALL_wd: ? #
 # DUP DROP 2DROP SWAP OVER 2SWAP ROT -ROT
 
 
-_toR_hd: EXECUTE_hd 0 2 ">R"
+NOP_hd: EXECUTE_hd 0 3 "NOP"
+NOP_wd: ?
+    Z Z NEXT_cd
+
+_toR_hd: NOP_hd 0 2 ">R"
 _toR_wd: ? #(pushes from data stack to return stack)
 _toR_cd:
     n1 RSP_ ; #grow return stack
@@ -841,8 +845,12 @@ BASE_wd:  do_var    BASE_val: 0A
 STATE_hd: BASE_hd 0 5 "STATE"
 STATE_wd: do_var    STATE_val: 0
 
+# Set to 1 to switch v1 interpreter into building mode, self_compile at end of file
+BUILDING_hd: STATE_hd 0 8 "BUILDING"
+BUILDING_wd: do_var  0
+
 # Dict vars
-DP_hd: STATE_hd 0 2 "DP"
+DP_hd: BUILDING_hd 0 2 "DP"
 DP_wd:     do_var       DP_val:    0DEAD #TODO
 LATEST_hd: DP_hd 0 6 "LATEST"
 LATEST_wd: do_var       LATEST_val: 0DEAD
@@ -886,6 +894,11 @@ TOKP_wd:     do_var   TOKP_val: 0
 
 restart_wd_addr: 0DEAD # Init will fill this in, since we don't have forward lebels
 
+# Other Vars:
+# LATEST (defined just before main loop, since is end of dict)
+
+# ==================== EXECUTION VECTORS / CONTROL VARS =========================
+
 # Holds xt for exception handler, will get called by handle_exception_x
 # (variable, implemented as const because of assembly weirdness)
 EXC_HANDLER_hd: TOKP_hd 0 0B "EXC_HANDLER"
@@ -896,8 +909,7 @@ EXC_HANDLER_wd: do_const  e_handler_val
 IN_EXC_hd: EXC_HANDLER_hd 0 6 "IN_EXC"
 IN_EXC_wd: do_const  e_in_e
 
-# Other Vars:
-# LATEST (defined just before main loop, since is end of dict)
+# 'EMIT: (see EMIT_wd)
 
 # ================================================================
 #
@@ -1936,9 +1948,9 @@ KEY_wd: ? # Fetches in a char (buffers through C_)
     Z Z NEXT_cd
 
 
-EMIT_hd: KEY_hd 0 4 "EMIT"
-EMIT_wd: ? #Emits char at TOS
-EMIT_cd:
+T_EMIT_hd: KEY_hd 0 6 "T_EMIT"
+T_EMIT_wd: ? #Emits char at TOS
+T_EMIT_cd:
     T T; TOS T; T OUT;
 
     # GADGET: POP(Z-)
@@ -1948,15 +1960,26 @@ EMIT_cd:
 
     Z Z NEXT_cd;
 
+# 'EMIT vector:
+_vEMIT_hd: T_EMIT_hd 0 5 "'EMIT"
+_vEMIT_wd: do_var _vEMIT_val: T_EMIT_wd
+
+EMIT_hd: _vEMIT_hd 0 4 "EMIT"
+EMIT_wd: do_colon
+EMIT_cd:
+    _vEMIT_wd _at_wd EXECUTE_wd EXIT_wd
+
+
+
 SPACE_hd: EMIT_hd 0 5 "SPACE"
-SPACE_wd: ?  # Emits 0x20 ' '
+SPACE_wd: do_colon  # Emits 0x20 ' '
 SPACE_cd:
-    n20 OUT; Z Z NEXT_cd
+    LIT_wd 20 EMIT_wd EXIT_wd
 
 NL_hd: SPACE_hd 0 2 "NL"
-NL_wd: ?  # Emits 0xA '\n'
+NL_wd: do_colon  # Emits 0xA '\n'
 NL_cd:
-    nA OUT; Z Z NEXT_cd
+    LIT_wd 0A EMIT_wd EXIT_wd
 
 HALT1_wd: ?
 HALT1_cd:
@@ -2574,14 +2597,11 @@ _OK_wd_plus_1:
     EXIT_wd
 
 
-SILENT_const: EXIT_wd # address of EXIT, we'll use it to overwrite OK
+# Silences OK from v0 interpreter
 SILENT_hd: HALTN_hd 0 6 "SILENT"
-SILENT_wd: ?
-    # overwrites OK to exit immediately, used for bulkloading while
-    # sourcing the bootstrap forth file
-    _OK_wd_plus_1 _OK_wd_plus_1 ;      # clear first word of OK
-    SILENT_const Z; Z _OK_wd_plus_1;  # set it to EXIT_wd
-    Z Z NEXT_cd
+SILENT_wd: do_colon
+    # : SILENT ['] EXIT ['] OK 1+ ! ;
+    LIT_wd EXIT_wd LIT_wd _OK_wd_plus_1 _bang_wd EXIT_wd
 
 
 INTERPRET1_wd: do_colon
@@ -3012,6 +3032,29 @@ RESTART_bd:
 
 # ======= INITIAL CONSTS for startup stuff
 forth_init_restart_wd: RESTART_wd # first forth word we jump to after START
+forth_init_silent_magic_char: "#" # if file starts with this, we should be silent
+forth_init_drop_xt: DROP_wd # if file starts with this, we should be silent
+
+# If first character of file is #, discard it and silence 'EMIT
+check_shebang_silence:
+     # We might have pushed back a character previously, check for that
+     Z C_needs_fetch ?+6
+         C_ C_; IN C_;  # if needs_fetch=1, fetch a fresh char
+     # Else, it's already in C_
+     C_needs_fetch C_needs_fetch ; # clear needs_fetch, we have 1 char buffered
+
+     T T; C_ T; # T holds first char
+     forth_init_silent_magic_char T; # T will be 0 if eq
+
+     Z Z;
+     Z  T ?+3  # if T <= 0; nextif
+     Z  Z ?+12 # KNOW:>0, jmp GTZ
+     n1 T ?+0F # nextif T+1<=0 (KNOW:T<0, jmp LTZ):
+               # KNOW: T==0
+     # change 'EMIT vector to DROP ( 0xC = dec12 ops), drop the #
+     C_ C_; T T; _vEMIT_val _vEMIT_val; forth_init_drop_xt T; T _vEMIT_val;
+     # else:
+     Z Z retsub
 
 
 # Start: inits persistent state constants
@@ -3035,7 +3078,6 @@ START_cd: # Starts executing here with no state
 
     # Init stack canary at TOS (will be written to DS0+1)
     TOS TOS; forth_canary_val Z; Z TOS; Z Z; #push CAFE to TOS as a marker?
-
 
     # ==== START EXECUTING RESTART
     # ( it will initialize return stack and other vars)
@@ -3064,6 +3106,9 @@ Z Z halt0
 
     # write 0d to entry so that we halt if we start executing at 0
     entry entry; nD entry;
+
+    # === If first char is #, start silent mode
+    R R; ?+5 R; Z Z check_shebang_silence ? #JSR
 
     # ==== Init consts
     # (we'd assemble these directly but we don't

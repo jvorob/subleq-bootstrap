@@ -1,3 +1,4 @@
+# 1 BUILDING !
 SILENT
 : IMMEDIATE 1 LATEST @ 1+ ! ;
 : [ 0 STATE ! ; IMMEDIATE
@@ -8,6 +9,10 @@ SILENT
 : (  KEY C' ) =
     [ LW_0BRANCH , -5 , ] ; IMMEDIATE
 ( We have comments now! not nested though )
+
+( COPY THIS TO THE FIRST LINE SILENTLY COMPILE THIS AS A BINARY:
+# 1 BUILDING !
+)
 
 ( Use this if we need to break to EOF before the v2 interpreter is up)
 : SKIPTO$ C' S EMIT
@@ -148,6 +153,7 @@ HEX
 810 CONSTANT $RUN
 : 'EXIT [ ' EXIT #, ] ;
 DECIMAL
+
 
 ( ============== COMPILE WORDS =========== )
 
@@ -604,6 +610,7 @@ DECIMAL
 
 ( === FILE LOADING MODE: === )
 
+
 : SKIP_TO_EOF ( -- num_lines_skipped)
     ( Used in bulkload mode to skip the rest of file input
       in case we encountered an error )
@@ -666,10 +673,7 @@ DECIMAL
         ." RESTART (v0.2)\n"
     THEN
 
-    ( TODO: reset BASE )
-    ( TODO reset data stack )
     RS0 1+ NEG RSP_ ! ( reset return stack )
-
     DS0 2+ NEG NOSP_ ! ( reset data stack ??? )
 
     ( reset variables )
@@ -769,9 +773,12 @@ DECIMAL
     ;
 
 
+: TIO ['] T_EMIT 'EMIT ! ;
+
 ( Now we have a better interpreter, let's patch the old interpreter )
 ( NOTE: this needs to happen all at once, so wrap in a temp upgrade word )
 : UPGRADE
+    BUILDING @ 0= IF TIO THEN ( enable output unless we're self-building )
     ( Patch in new interpreter, switch to bulk load mode )
     ." Upgrading interpreter to v0.2\n"
 
@@ -1495,11 +1502,16 @@ HEX
 DECIMAL
 
 : SELFCOMPILE
+    TIO ( re-enable terminal IO to output binary )
     0 BULKLOAD ! ( reset this, not a good way to do it otherwise )
     MAKEBINARY
     0 HALTN ;
 
+( redefine this so if we're in BUILDING mode, we'll self compile and exit )
+: END_OF_FILE
+    BUILDING @ IF SELFCOMPILE
+    ELSE END_OF_FILE THEN ;
+
 : TEST ; ( test word to catch if we're still in compile mode ) FORGET' TEST
- GREET
-( SELFCOMPILE )
+GREET
 END_OF_FILE
