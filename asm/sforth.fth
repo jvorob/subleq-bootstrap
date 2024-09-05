@@ -292,6 +292,9 @@ DECIMAL
     R> DROP ( RS: end )
     R@ >R >R ( RS: end end ra ) ;
 
+( NOTE: can't RETURN out of a loop, need to drop loop counters )
+: LOOPRETURN [COMPILE] R> [COMPILE] R> [COMPILE] 2DROP [COMPILE] RETURN ; IMMEDIATE
+
 ( ================== CASE...OF..ENDOF..ENDCASE ======================= )
 ( NOTE === HOW SHOULD DEFAULT BE HANDLED?
     X @ CASE
@@ -1122,41 +1125,25 @@ DECIMAL
 : CFA_ERR [ WIP @ #, ] ;
 : CFA> ( cfa -- wha OR CFA_ERR )
 
-    ( don't even bother checking for words if it's a
-      really small address )
-    DUP ABS 1000 < IF  ( cfa )
-        DROP CFA_ERR RETURN
-    THEN
+    ( don't even bother checking for words if it's a really small address )
+    DUP ABS 1000 < IF DROP CFA_ERR RETURN THEN
 
-    DUP 1- ( cfa ptr )
-    32 ( max chars to search backwards )
-
-    BEGIN ( cfa ptr i )
-        >R ( cfa ptr ; stash i )
-
-        2DUP CFA_MATCHES IF
-            ( cfa ptr; ptr points to strlen field )
-            NIP 2- ( skip strlen, flags )
-
-            R> DROP ( get rid of i )
-            RETURN ( returns wha )
+    ( we want to search for the start of the string preceding CFA, up to 32 chars back )
+    DUP 32 - OVER 1- ( cfa cfa-32 cfa-1 ) DO
+        ( cfa, I is test_strp )
+        DUP I> CFA_MATCHES IF ( cfa -- ; ptr points to strlen field )
+            DROP I> 2- ( skip strlen, flags )
+            LOOPRETURN ( returns wha; NOTE: returning from DOLOOP, finnicky )
         THEN
 
-        ( if ptr contains anything other than ascii,
-          we should early exit )
-        DUP @ ISPRINTABLE 0= IF ( cfa ptr )
-            R> DROP ( drop i from return stack )
-            2DROP CFA_ERR RETURN  ( drop rest, return err )
+        ( if ptr contains anything other than ascii, we should early exit )
+        I> @ ISPRINTABLE 0= IF ( cfa )
+            LEAVE  ( fail, returns CFA_ERR )
         THEN
+    1 -LOOP
 
-
-        1- ( cfa ptr-- )
-        R> 1- ( check I )
-    DUP 0<= UNTIL
-
-    ( cfa ptr i )
-    2DROP DROP
-    CFA_ERR ; ( return err word )
+    DROP CFA_ERR ( If we went 32 chars back without finding it, err )
+    ;
 
 
 
