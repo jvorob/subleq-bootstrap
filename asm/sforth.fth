@@ -1164,10 +1164,11 @@ DECIMAL
     LW_-LOOP   OF ." -LOOP"    ENDOF
     $NEXT      OF ." $NEXT"    ENDOF
     $RUN       OF ." $RUN"     ENDOF
+    '\N'       OF ." '\\N'"     ENDOF
     DUP ISPRINTABLE IF ( if is ascii )
         C' ' EMIT EMIT C' ' EMIT ENDOF
     DUP SMALLINT? IF ( if is a non ascii number )
-        SPACE . ENDOF
+        SPACE DECIMAL . HEX ENDOF
     DUP BELOWALLWORDS IF ( xt )
         DROP ENDOF ( if small constant, just dont print anything )
     DEFAULT ( xt )
@@ -1437,7 +1438,6 @@ HEX
     ( leave stacks blank, restart will fix canaries )
     0500 BLANKTILL ( blank vars, blank stacks, token buff )
     ;
-
 
 : MAKECONSTS 0040 BLANKTILL ( integer constants in x40 - xA0 )
     0060 BDUMPTILL ( pos/neg ints 0-F )
