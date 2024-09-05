@@ -1166,53 +1166,44 @@ DECIMAL
 
     DUP 4 U.R ( print word )
     ." ("
-
-    DUP DO_COLON = IF ( xt )
-        DROP ." DO_COLON"
-    ELSE DUP LW_LIT = IF ( xt )
-        DROP ." LIT"
-    ELSE DUP LW_LITSTR = IF ( xt )
-        DROP ." LITSTR"
-    ELSE DUP LW_BRANCH = IF ( xt )
-        DROP ." BRANCH"
-    ELSE DUP LW_0BRANCH = IF ( xt )
-        DROP ." 0BRANCH"
-    ELSE DUP LW_DO = IF ( xt )
-        DROP ." DO"
-    ELSE DUP LW_+LOOP = IF ( xt )
-        DROP ." +LOOP"
-    ELSE DUP LW_-LOOP = IF ( xt )
-        DROP ." -LOOP"
-    ELSE DUP $NEXT = IF ( xt )
-        DROP ." $NEXT"
-    ELSE DUP $RUN = IF ( xt )
-        DROP ." $RUN"
-    ELSE DUP ISPRINTABLE IF ( if is ascii )
-        C' ' EMIT EMIT C' ' EMIT
-    ELSE DUP SMALLINT? IF ( if is a non ascii number )
-        SPACE .
-    ELSE DUP BELOWALLWORDS IF ( xt )
-        DROP ( if small constant, just dont print anything )
-    ELSE ( xt )
+    ( xt ) CASE
+    DO_COLON   OF ." DO_COLON" ENDOF
+    LW_LIT     OF ." LIT"      ENDOF
+    LW_LITSTR  OF ." LITSTR"   ENDOF
+    LW_BRANCH  OF ." BRANCH"   ENDOF
+    LW_0BRANCH OF ." 0BRANCH"  ENDOF
+    LW_DO      OF ." DO"       ENDOF
+    LW_+LOOP   OF ." +LOOP"    ENDOF
+    LW_-LOOP   OF ." -LOOP"    ENDOF
+    $NEXT      OF ." $NEXT"    ENDOF
+    $RUN       OF ." $RUN"     ENDOF
+    DUP ISPRINTABLE IF ( if is ascii )
+        C' ' EMIT EMIT C' ' EMIT ENDOF
+    DUP SMALLINT? IF ( if is a non ascii number )
+        SPACE . ENDOF
+    DUP BELOWALLWORDS IF ( xt )
+        DROP ENDOF ( if small constant, just dont print anything )
+    DEFAULT ( xt )
         CFA>  DUP CFA_ERR = IF
             DROP ." ???"
         ELSE
-            >WNA TELL
-        THEN
-    THEN THEN THEN THEN THEN THEN THEN THEN THEN THEN THEN THEN THEN
+            >WNA TELL THEN
+        ENDOF
+    ENDCASE
     ." )"
-    ( xt )
 
     R> BASE !  ( restore base )
     ;
 
 : PREVWORD ( addr - xt ) 1- @ ;
-: DS_OFFSET? ( addr - b ) PREVWORD
-    DUP LW_BRANCH  = IF DROP TRUE RETURN THEN
-    DUP LW_0BRANCH = IF DROP TRUE RETURN THEN
-    DUP LW_+LOOP   = IF DROP TRUE RETURN THEN
-    DUP LW_-LOOP   = IF DROP TRUE RETURN THEN
-    DROP FALSE RETURN ;
+: DS_OFFSET? ( addr - b )
+    PREVWORD CASE
+        LW_BRANCH  OF TRUE ENDOF
+        LW_0BRANCH OF TRUE ENDOF
+        LW_+LOOP   OF TRUE ENDOF
+        LW_-LOOP   OF TRUE ENDOF
+        DEFAULT DROP FALSE ENDOF
+    ENDCASE ;
 : DS_LITVAL? ( addr - b ) PREVWORD LW_LIT = ;
 
 : SHOWOFFSET ( addr - ; shows offsets like "4   (->3BFe)" )
