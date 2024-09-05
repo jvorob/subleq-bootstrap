@@ -443,6 +443,8 @@ DECIMAL
     STATE @ IF #, THEN
     ; IMMEDIATE
 )
+: ' TOKEN UPPER FIND >CFA ;
+: ['] ' #, ; IMMEDIATE
 
 
 ( TODO
