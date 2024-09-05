@@ -129,6 +129,24 @@ int16_t program_init[] = {
 
 // ====================== FUNCS
 
+#include <string.h> /* for memcpy() */
+#include <termios.h>
+
+void set_unbuffered() {
+    // changes stdin/out to be unbuffered
+    setvbuf(stdin, NULL, _IONBF, 0);
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    struct termios term_stored;
+    struct termios term_new;
+    tcgetattr(0,&term_stored); // save old value
+    memcpy(&term_new,&term_stored,sizeof(struct termios));
+    term_new.c_lflag &= ~(ECHO|ICANON); /* disable echo and canonization */
+    tcsetattr(0,TCSANOW,&term_new);
+
+    //tcsetattr(0,TCSANOW,&term_stored); /* restore the original state */
+}
+
 //gets a char from stdin
 int16_t get_input() {
     int16_t c = getc(stdin);
@@ -388,6 +406,9 @@ void run_default_program() {
 //returns return value
 int run_binary(char *fname, int throttle_mhz) {
     //arg 0 is script name, arg 1 is 'bin'
+
+    // TODO: TEMP
+    //set_unbuffered();
 
     FILE *binfile;
     if(strcmp(fname, "-") == 0) {
