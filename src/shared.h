@@ -7,6 +7,11 @@ typedef char bool;
 #define TRUE 1
 #define FALSE 0
 
+// stringify macros: lets you do e.g. `printf("My const:"STR(MYCONST)"\n");`)
+#define STR_INNER(s) #s     // stringifies paramater
+#define STR(s) STR_INNER(s) // expands outer macro once to its value
+
+
 #define MEM_BUFF 20 //how much extra padding on the end, really should only need 2 words but whatever
 #define WORD_SIZE 2
 #define MEM_SIZE 65536

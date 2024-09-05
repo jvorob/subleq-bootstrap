@@ -8,7 +8,6 @@
 #include "shared.h"
 #include "hex.h"
 
-
 //design q: 16-bit word-addressed or byte-addressed? byte-addressed b/c irl memory modules
 // (although could just chain two into a double-wide word-addressed mem)
 // let's do 16-bit
@@ -68,6 +67,7 @@ struct vm_debug_opts glb_debug_opts = {0};
 // =============== CONSTANTS
 #define LOG_PREFIX "DEBUG-"
 
+#define DEFAULT_MHZ 10
 
 #define IN_ADDR  8
 #define OUT_ADDR 9
@@ -386,7 +386,7 @@ void run_default_program() {
 
 //loads a binary file and executes it
 //returns return value
-int run_binary(char *fname) {
+int run_binary(char *fname, int throttle_mhz) {
     //arg 0 is script name, arg 1 is 'bin'
 
     FILE *binfile;
@@ -403,13 +403,10 @@ int run_binary(char *fname) {
     init_vm(&global_vm);
     load_binary_file(&global_vm, binfile);
 
-    // EDIT THIS TO SET SPEED (  accurate up to ~100MHz)
-    const int THROTTLE_N_MHZ = 10;
-
     fprintf(stderr, "======= Running %s, %dMHz:\n",
                 glb_QUAD_ALIGNED? "quad-aligned":"16bit",
-                THROTTLE_N_MHZ);
-    int retval = run(&global_vm, THROTTLE_N_MHZ);
+                throttle_mhz);
+    int retval = run(&global_vm, throttle_mhz);
     fprintf(stderr, "======= Halted with code %d after %ld steps\n",
                 retval, global_vm.num_cycles);
 
@@ -437,6 +434,8 @@ void print_usage() {
     fprintf(stderr, "      --4aligned      # instructions must be 4-word aligned, 4th is ignored\n");
     fprintf(stderr, "      --unaligned     # instructions are any 3 consecutive dwords\n");
     fprintf(stderr, "                      # (default is unaligned)\n");
+    fprintf(stderr, "      --mhz N         # Throttle speed to N mhz (1-100, default "
+                                             STR(DEFAULT_MHZ) "Mhz)\n");
     fprintf(stderr, "   Debugging Options:\n");
     fprintf(stderr, "      --debug         # enables verbose debugging output per-step\n");
     fprintf(stderr, "      --dump ADDR LEN # on program exit, dumps LEN words at ADDR\n");
@@ -455,11 +454,23 @@ int parse_hex(char *str, int *result) {
     return *endptr == '\0';
 }
 
+// parses string str, puts result in res
+// returns 1 if succeeded, 0 if failed
+int parse_int(char *str, int *result) {
+    if (str[0] == '\0') { return 0; }
+    char *endptr;
+    *result = strtol(str, &endptr, 10);
+
+    // endptr now is how much of the string was parsed
+    // success if whole string was valid number, so endptr == '\0'
+    return *endptr == '\0';
+}
+
 // Arg Parsing stuff
 // options
 
 int main(int argc, char *argv[]) {
-
+    int throttle_mhz = DEFAULT_MHZ; // default
 
     // ========== HANDLE OPTION FLAGS
     //discards processed opts, shifting argv down
@@ -481,6 +492,26 @@ int main(int argc, char *argv[]) {
                 glb_QUAD_ALIGNED = TRUE;
             } else if(0 == strcmp(curr_arg, "--unaligned")) {
                 glb_QUAD_ALIGNED = FALSE;
+            } else if(0 == strcmp(curr_arg, "--mhz")) {
+                // Grab one opt
+                if (argc - read_i - 1 < 1) {
+                    fprintf(stderr, "ERROR: --mhz requires 1 arg\n");
+                    print_usage();
+                    exit(1);
+                }
+                // parse args
+                int mhz_arg = -1;
+                if (! parse_int(argv[read_i+1], &mhz_arg)) {
+                    fprintf(stderr, "ERROR: --dump: failed to parse hex arg '%s'\n", argv[read_i+1]);
+                    print_usage(); exit(1);
+                }
+
+                throttle_mhz = mhz_arg;
+
+                // advance pointers
+                read_i += 1;
+                shift_amount += 1;
+
             } else if(0 == strcmp(curr_arg, "--dump")) {
                 // Grab two opts
                 if (argc - read_i - 1 < 2) {
@@ -543,7 +574,7 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "TEST MODE\n");
             exit(0);
         } else {
-            int retcode=run_binary(argv[1]);
+            int retcode=run_binary(argv[1], throttle_mhz);
             exit(retcode);
         }
     }
