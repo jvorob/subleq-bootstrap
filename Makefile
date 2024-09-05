@@ -96,7 +96,8 @@ sforth: sforth1.bin
 .PHONY: sforth
 
 sforth2: fth/sforth2.fth sforth1.bin
-	cat $< - | stdbuf -oL tail -n+2 | stdbuf -i0 -o0 -e0 ./sleqrun sforth1.bin
+	@#cat $< - | stdbuf -oL tail -n+2 | stdbuf -i0 -o0 -e0 ./sleqrun sforth1.bin
+	cat $< - | stdbuf -i0 -o0 -e0 ./sleqrun sforth1.bin
 .PHONY: sforth2
 
 #sforth.bin: asm/sforth.fth sforth_core.bin

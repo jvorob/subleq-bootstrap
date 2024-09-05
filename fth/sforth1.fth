@@ -705,9 +705,9 @@ DECIMAL
         ." ERROR LOADING FILE\n"
         ." - Last word was: "
             LATEST @ >WNA TELL NL ( print last word )
-        ." - Skipped rest of file ("
+        ." - Skipping rest of file:"
             SKIP_TO_EOF
-            . ." lines)\n"
+            ." (" . ." lines)\n"
         0 BULKLOAD ! ( switch back to interactive mode )
     ELSE SKIP_TO_NL
 
