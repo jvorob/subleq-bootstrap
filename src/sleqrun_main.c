@@ -67,7 +67,7 @@ struct vm_debug_opts glb_debug_opts = {0};
 // =============== CONSTANTS
 #define LOG_PREFIX "DEBUG-"
 
-#define DEFAULT_MHZ 10
+#define DEFAULT_MHZ 2
 
 #define IN_ADDR  8
 #define OUT_ADDR 9

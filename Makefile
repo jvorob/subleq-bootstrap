@@ -76,13 +76,30 @@ hex1.bin: asm/hex1.hex1 hex1
 	./hex1 <$< >$@
 
 # ===== Forth?
-.PHONY: sforth
-sforth: sforth.bin
-	@# We want to load the .fth source, but we don't want it to be buffered
-	cat asm/sforth.fth - | stdbuf -i0 -o0 -e0 ./sleqrun $<
-
-sforth.bin: asm/sforth.asm2 asm2.bin
+sforth_knl.bin: asm/sforth.asm2 asm2.bin
 	./sleqrun asm2.bin <$< >$@
+
+# Interactively load sforth1
+sforth1: fth/sforth1.fth sforth_knl.bin
+	@# cat: load the .fth source, then continue with stdin
+	@# tail: discard the first line so we're not silent/compiling
+	@#       (need to force it line-buffered to prevent hangup)
+	@# stdbuf: more trying to keep it from buffering
+	cat $< - | stdbuf -oL tail -n+2 | stdbuf -i0 -o0 -e0 ./sleqrun sforth_knl.bin
+.PHONY: sforth1
+
+sforth1.bin: fth/sforth1.fth sforth_knl.bin
+	./sleqrun sforth_knl.bin <$< >$@
+
+sforth: sforth1.bin
+	./sleqrun $<
+.PHONY: sforth
+
+sforth2: fth/sforth2.fth sforth1.bin
+	cat $< - | stdbuf -oL tail -n+2 | stdbuf -i0 -o0 -e0 ./sleqrun sforth1.bin
+.PHONY: sforth2
+
+#sforth.bin: asm/sforth.fth sforth_core.bin
 
 
 # ========== TESTS

@@ -718,9 +718,7 @@ DECIMAL
 
 : ?STACK ( checks stacks for underflow, errors out if found )
     DEPTH 0< IF
-        ." DS UNDERFLOW: "
-            DEPTH .
-            ." items on stack" NL
+        ." DS UNDERFLOW: " DEPTH .  ." items on stack" NL
         HANDLE_ERR
     THEN ;
 
@@ -1504,6 +1502,7 @@ DECIMAL
 : SELFCOMPILE
     TIO ( re-enable terminal IO to output binary )
     0 BULKLOAD ! ( reset this, not a good way to do it otherwise )
+    0 BUILDING ! ( TODO: this should be in START? RESTART? )
     MAKEBINARY
     0 HALTN ;
 
