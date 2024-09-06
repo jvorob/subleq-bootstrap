@@ -67,6 +67,9 @@ SILENT
 ( Stack helpers )
 : NIP ( a b - b ) SWAP DROP ;
 
+( math helpers )
+: 1+! ( addr ) 1 SWAP +! ;
+
 ( currently these seem to work for small positive divisors)
 : U/ ( a b - a/b )
     U/MOD ( a/b a%b ) DROP ;
@@ -378,65 +381,36 @@ DECIMAL
     DROP ;
 
 : DIGASCII ( dig -- [outputs ascii] )
-    DUP 36 >= IF ( n )
-        DROP C' ? RETURN
-    THEN DUP 10 >= IF ( n )
-        10 - 'A' + RETURN ( digit in 10-35, A-Z )
-    THEN DUP 0 >= IF ( n )
-        '0' + RETURN ( digit in 0-9 )
-    THEN  ( n )
-        DROP C' ?
-    ;
+         DUP 36 >= IF ( n ) DROP [CHAR] ? RETURN
+    THEN DUP 10 >= IF ( n ) 10 - 'A' +    RETURN ( digit in 10-35, A-Z )
+    THEN DUP 0  >= IF ( n ) '0' +         RETURN ( digit in 0-9 )
+    THEN              ( n ) DROP [CHAR] ?  ;
 
-: CSTACKSHOW C' : EMIT DEPTH DIGASCII EMIT SPACE  ;
-: U.R  ( number width -- ; prints out unsigned,
-    rpadded to width )
-    ( we're going to push the digits onto the stack, LSD on bottom )
+0 VARIABLE #DIGITS
+: <# ( u -- -1 [digs] urest ) -1 SWAP 0 #DIGITS ! ;
+: # ( -1 [digs] urest -- -1 [digs+1] urest )
+    BASE @ U/MOD ( -1 digs urest dig ) SWAP #DIGITS 1+! ;
+: #S ( -1 [digs] urest -- -1 [digs] 0 ) DUP IF # TAILCALL RECURSE THEN ;
+: #> ( -1 [digs] urest -- ; prints digs )
+    DROP
+    BEGIN DUP 0>= WHILE
+        DIGASCII EMIT
+    WEND ( -1 ) DROP ;
 
-    SWAP ( width is going to be under all this mess )
-
-    -1 SWAP  ( push -1 as sentinel )
-    BEGIN ( width -1 [..digits] rest )
-        BASE @ U/MOD ( -1 [digits] rest digit )
-        ( In the absence of an unsigned divmod, manually unsign the digits? )
-        ( e.g. in hex, remainder of -1 is )
-        DUP 0< IF BASE @ + THEN
-
-
-        ABS ( TODO: BUG we need an unsigned divmod, but for now we make do )
-        SWAP        ( -1 [digits] digit rest )
-    DUP 0= UNTIL ( if rest = 0, break )
-
-    ( width -1 [digits] 0 )
-    ( leave 0 on stack, we'll use it as num chars printed )
-
-    ( we're guaranteed at least one digit)
-    BEGIN ( width -1 [digits] cnt )
-        1+ SWAP ( ... [digits] cnt nextdigit )
-        ABS DIGASCII EMIT
-    ( width -1 [digits] cnt )
-    OVER 0< UNTIL ( stop when we hit the -1 )
-    NIP  ( width cnt ; drop the -1 )
-
-    ( Now, let's pad: prints width-count spaces )
-    - SPACES
-    ;
-
-: U. ( n -- ) 0 U.R SPACE ;
-
+: SIGN ( f -- abs(f) ; prints '-' ) DUP 0< IF [CHAR] - EMIT NEG THEN ;
 : SIGNR ( n width -- n w | -n w-1 ) OVER 0< IF C' - EMIT 1- SWAP NEG SWAP THEN ;
-: .R ( number width -- [prints signed, padded to width] ) SIGNR U.R ;
-: . ( number ) 0 .R SPACE ;
+
+: U.R ( u width - ) SWAP <# # #S #> ( width ) #DIGITS @ - SPACES ;
+: .R ( n width - ) SIGNR U.R ;
+: U. ( u - ) 0 U.R SPACE ;
+: . ( n - ) SIGN U. ;
 : ? ( addr -- ) @ . ;
 
 DECIMAL
 ( . was bugged for a while with negatives and such, this was a stopgap measure: )
 : TOP4EMIT ( n -- [ prints top nibble] ) 12 U>> DIGASCII EMIT ;
-: XU.4 ( n -- [prints n properly, in hex] )
-    DUP TOP4EMIT 4 <<
-    DUP TOP4EMIT 4 <<
-    DUP TOP4EMIT 4 <<
-    TOP4EMIT ;
+: NEXT4 ( n -- nshifted ) DUP TOP4EMIT 4 << ;
+: XU.4 ( n -- [prints n properly, in hex] ) NEXT4 NEXT4 NEXT4 NEXT4 DROP ;
 : X. XU.4 SPACE ;
 
 
@@ -611,11 +585,11 @@ DECIMAL
 ( === FILE LOADING MODE: === )
 
 
-: SKIP_TO_EOF ( -- num_lines_skipped)
+: SKIP_TO_EOF ( -- )
     ( Used in bulkload mode to skip the rest of file input
       in case we encountered an error )
     ( TODO: make it process comments? )
-
+    ." - Skipping rest of file:"
     0 BEGIN ( num_skipped )
         TOKEN ( num_skipped token -- )
         DUP 1+ @ '\N' = IF ( if is \n )
@@ -623,7 +597,10 @@ DECIMAL
         THEN
         STR" END_OF_FILE" STR= ( if is EOF, break )
     UNTIL
-    ( -- num_skipped ) ;
+    ( -- num_skipped )
+    ."  (" . ." lines)\n"
+    0 BULKLOAD ! ( switch back to interactive mode )
+    ;
 
 : SKIP_TO_NL ( discards rest of input line until it hits a \n )
     BEGIN KEY '\N' = UNTIL ;
@@ -705,10 +682,7 @@ DECIMAL
         ." ERROR LOADING FILE\n"
         ." - Last word was: "
             LATEST @ >WNA TELL NL ( print last word )
-        ." - Skipping rest of file:"
-            SKIP_TO_EOF
-            ." (" . ." lines)\n"
-        0 BULKLOAD ! ( switch back to interactive mode )
+        SKIP_TO_EOF
     ELSE SKIP_TO_NL
 
     THEN
