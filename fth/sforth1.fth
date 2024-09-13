@@ -62,6 +62,7 @@ SILENT
 : '"' C' " ;
 : '\N' 10 ;
 : '\\' 92 ;
+: BL 32 ;
 
 
 ( Stack helpers )
@@ -70,11 +71,6 @@ SILENT
 ( math helpers )
 : 1+! ( addr ) 1 SWAP +! ;
 
-( currently these seem to work for small positive divisors)
-: U/ ( a b - a/b )
-    U/MOD ( a/b a%b ) DROP ;
-: UMOD ( a b - a%b )
-    U/MOD ( a/b a%b ) NIP ;
 
 : HEX 16 BASE ! ;
 : DECIMAL 10 BASE ! ;
@@ -372,6 +368,41 @@ DECIMAL
 : STRBOUNDS ( strp -- &str_end &str[0] ) DUP STREND SWAP 1+ ;
 
 : ABS DUP 0< IF NEG THEN ;
+
+
+( =============== DIVISION =============== )
+( unsigneds work for positive divisor <= 0x7FFF )
+( correctly treats negative divisors as negative )
+: U/ ( a b - a/b ) U/MOD ( a/b a%b ) DROP ;
+: UMOD ( a b - a%b ) U/MOD ( a/b a%b ) NIP ;
+
+( Implement truncating signed division ( the standard one in most programming systems )
+These all satisfy q*d+r = dividend ( from Hacker's Delight, Ch 9 )
+            TRUNC   MOD   FLOOR
+ 7  3 /MOD   2  1   2  1   2  1
+-7  3 /MOD  -2 -1  -3  2  -3  2
+ 7 -3 /MOD  -2  1  -2  1  -3 -2
+-7 -3 /MOD   2 -1   3  2   2 -1
+Truncating is standard, truncates q towards 0
+Mod requires rem to be +
+Floor rounds q down
+)
+: /MOD ( n d -- q r ) OVER 0< IF
+    ( U/MOD can handle negative divisors, just not negative dividends
+      Turns out having a negative divisor negates bothe the Q and the R, so just do that explicitly )
+    SWAP NEG SWAP ( negate N )
+    U/MOD
+    NEG SWAP NEG SWAP ( negate Q and R )
+    ELSE U/MOD THEN
+    ;
+
+: MOD ( n d -- r ) /MOD NIP ;
+: /   ( n d -- q ) /MOD DROP ;
+
+( if we want nonnegative modulo, do it explicitly: )
+: FIXMOD ( d r -- +mod ) DUP 0< IF + ELSE NIP THEN ;
+: +MOD ( n d -- r ; positive modulo ) TUCK MOD ( d ?r ) FIXMOD ;
+
 
 ( ========== OUTPUT . and friends ========= )
 
@@ -837,24 +868,43 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 ( ==========  Arithmetic Test cases  ========= )
 : TRUE 1 ;
 : FALSE 0 ;
-: EXPECT" ( a expected [ reads "errstr" from input ] -- )
-    ( if a and b differs, prints error string, halts )
-    TEMPSTR" -ROT ( strp a b )
-    2DUP <> IF ( strp a b; if values differ from expected )
-        ( f"ERROR ({errstr}), EXPECTED {a], GOT {b}" )
-        ." ERROR ("
-        ROT TELL ( ; print strp )
-        ." ): EXPECTED "
-        ( a exp )
-        .  ( a; print exp)
-        ." , GOT "
-        . ( ; print a )
-        NL
+0 CONSTANT A
+0 CONSTANT B
+0 CONSTANT EA
+0 CONSTANT EB
 
+( to constant )
+: TO ( [token] -- )
+    ' ( cfa )
+    DUP @ DO_CONST <> IF ." ERROR: `TO` used on non-constant\n" HANDLE_ERR THEN
+    1+ ( cfa+1 )
+    STATE @ IF #, ( addr of variable ) [COMPILE] !
+            ELSE ! THEN
+    ; IMMEDIATE
+
+( if a and b differs, prints error string, halts )
+: EXPECT" ( a expected [ reads "errstr" from input ] -- )
+    TO EA TO A
+    TEMPSTR"
+    A EA <> IF ( f"ERROR ({errstr}), EXPECTED {ea} GOT {a}" )
+        ." ERROR (" TELL
+        ." ): EXPECTED " A .
+        ." , GOT " EA .
+        NL
         HANDLE_ERR
-    ELSE
-        2DROP DROP ( -- )
-    THEN ;
+    ELSE ( strp )DROP THEN ;
+
+: 2EXPECT" ( a b ea eb [reads"] -- )
+    ( if a b don't match expected, prints error message )
+        TO EB TO EA TO B TO A
+        TEMPSTR" ( happens when run? )
+        A EA <> B EB <> OR IF ( if not match )
+            ( errstr ) TELL
+            ." : expected '" EA . EB 0 .R
+            ." ', got '" A . B 0 .R ." '\n"
+            HANDLE_ERR
+        ELSE ( errstr ) DROP THEN
+        ;
 
 : TF ( 1/0 -- [emits T or F] ) IF C' T EMIT ELSE C' F EMIT THEN ;
 : BNOT ( a -- !a ) 1 XOR ; ( negate a boolean )
@@ -977,30 +1027,17 @@ D000  4000 TEST<
 DECIMAL
 
 
+
+
+." === Testing /MOD signs (truncating divsion)\n"
+ 7  3 /MOD   2  1 2EXPECT"  7  3 /MOD"
+-7  3 /MOD  -2 -1 2EXPECT" -7  3 /MOD"
+ 7 -3 /MOD  -2  1 2EXPECT"  7 -3 /MOD"
+-7 -3 /MOD   2 -1 2EXPECT" -7 -3 /MOD"
+
 FORGET' TESTCASE_START ( forget all our temporary testing words )
 
 
-( ( =============== SIGNED DIVISION =============== )
-( currently not working right: unsigned division seems to work correctly with positive
-  divisors, but just negating stuff isn't working right anymore. Need to sit down and solve
-  this properly at some point, but is not top priority )
-( old solution was to flip both dividend and divisor positive, then flip back later?
-  however this gave -quotient and -remainder. Might have been better to do -quotient and positive remainder?
-  Need to think about proper conventions for negatives)
-
-: /MOD ( a b -- )
-    OVER 0>= [ LW_0BRANCH , 3 , ] ( if a positive, just do unsigned divide )
-        U/MOD RETURN
-    ( else )
-    SWAP NEG SWAP U/MOD ( -quot, rem )
-    SWAP NEG SWAP NEG ( negate quotient and remainder??? ) ;
-
-: / ( a b - a/b )
-    /MOD ( a/b a%b ) DROP ;
-: MOD ( a b - a%b )
-    /MOD ( a/b a%b ) NIP ;
-
-)
 0 VARIABLE V ( divisor )
 : /SHOW ( n v -- )
     ." ( "
