@@ -127,6 +127,72 @@ int16_t program_init[] = {
 };
 
 
+// ============= THROTTLE STUFF
+//
+//
+// Call throttle_init once
+// Call throttle_consume_ms(n) to delay that long (accurately!)
+// Call throttle_mayblock_start() and _end() whenever target system
+//      ISNT actively running, so we dont grant it that wallclock time towards
+//      its runtime budget in throttle_consume
+
+const clockid_t CLOCK = CLOCK_MONOTONIC;
+struct timespec throttle_last_time = { } ;
+
+void throttle_init() {
+    // Get initial time, we'll use this to throttle our progress
+    clock_gettime(CLOCK, &throttle_last_time);
+}
+
+
+const int64_t MSEC_TO_NS = 1000 * 1000;
+const int64_t SEC_TO_NS = 1000 * MSEC_TO_NS;
+
+void time_add_ns(struct timespec *t, long ns) {
+    t->tv_nsec += ns;
+         if ( t->tv_nsec > SEC_TO_NS) { t->tv_sec++; t->tv_nsec -= SEC_TO_NS; }
+    else if ( t->tv_nsec < 0        ) { t->tv_sec--; t->tv_nsec += SEC_TO_NS; }
+}
+void time_sub_ns(struct timespec *t, long ns) { time_add_ns(t, -ns); }
+
+void time_add(struct timespec *a, const struct timespec *b) {
+    time_add_ns(a, b->tv_nsec); // add the nanoseconds and carry
+    a->tv_sec += b->tv_sec;
+}
+void time_sub(struct timespec *a, const struct timespec *b) {
+    time_sub_ns(a, b->tv_nsec); // subtract the nanoseconds and carry
+    a->tv_sec -= b->tv_sec;
+}
+
+
+void throttle_consume_ns(long ns) {
+    time_add_ns(&throttle_last_time, ns);
+
+    // Sleep until that time
+    clock_nanosleep(CLOCK, TIMER_ABSTIME, // sleep until that time
+            &throttle_last_time, NULL );
+}
+
+void throttle_consume_ms(long ms) { throttle_consume_ns(ms * MSEC_TO_NS); }
+
+struct timespec throttle_block_start = { } ;
+// If we have a blocking operation, we want to count that time as not having elapsed
+void throttle_mayblock_start() {
+    clock_gettime(CLOCK, &throttle_block_start);
+}
+void throttle_mayblock_end() {
+    struct timespec throttle_block_end = { } ;
+    clock_gettime(CLOCK, &throttle_block_end);
+
+    // Do end - start for the difference
+    time_sub(&throttle_block_end, &throttle_block_start);
+
+    // Add the difference into throtle_last_time, so any time spent blocked wont countdown for instruction throttling
+    time_add(&throttle_last_time, &throttle_block_end);
+}
+// ============= END THROTTLE
+
+
 // ====================== FUNCS
 
 #include <string.h> /* for memcpy() */
@@ -149,7 +215,12 @@ void set_unbuffered() {
 
 //gets a char from stdin
 int16_t get_input() {
+    // getc mightblock, and we don't to count that time towards our throttle limit
+    // (since the SUBLEQ CPU couldn't be executing ops then)
+    throttle_mayblock_start();
     int16_t c = getc(stdin);
+    throttle_mayblock_end();
+
     if(glb_DEBUGGING_ENABLED) {
         if(c == '\n') {
             fprintf(stderr, LOG_PREFIX "Input: '\\n', %hx\n", c);
@@ -323,36 +394,18 @@ void load_test_program(struct vm_state *vm) {
 int run(struct vm_state *vm, int throttle_mhz) {
     int retval;
 
+    throttle_init();
     // (NOTE: I checked on acetate, throttling is within 1% accurate up to ~100MHz)
     // ( however, unthrottled it seems to cap out at around 120MHz on my machine,
     //   so that's about the limit )
     if (throttle_mhz <= 0) { throttle_mhz = 1000000; } // effectively unlimited
     const int64_t ops_per_msec = throttle_mhz * 1000; // 1MHZ is 1000 ops/ms
-    const int64_t MSEC_TO_NS = 1000 * 1000;
-    const int64_t SEC_TO_NS = 1000 * MSEC_TO_NS;
-
-
-    // Get initial time, we'll use this to throttle our progress
-    const clockid_t CLOCK = CLOCK_MONOTONIC;
-    struct timespec last_time = { } ;
-    clock_gettime(CLOCK, &last_time);
 
     do {
-        retval = step(vm);
+        retval = step(vm); // RUN a step
 
-        if (vm->num_cycles % ops_per_msec == 0) {
-
-            // Add 1ms to last_time
-            last_time.tv_nsec += MSEC_TO_NS; // 3 ms into the future
-            if(last_time.tv_nsec > SEC_TO_NS) {
-                last_time.tv_sec++;
-                last_time.tv_nsec -= SEC_TO_NS;
-            }
-
-            // Sleep until that time
-            clock_nanosleep(CLOCK, TIMER_ABSTIME, // sleep until that time
-                    &last_time, NULL );
-        }
+        // Handle throttling
+        if (vm->num_cycles % ops_per_msec == 0) { throttle_consume_ms(1); }
 
     } while (retval == 0);
 
