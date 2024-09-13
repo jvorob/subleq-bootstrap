@@ -868,8 +868,8 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 ( ==========  Arithmetic Test cases  ========= )
 : TRUE 1 ;
 : FALSE 0 ;
-0 CONSTANT A
-0 CONSTANT B
+0 CONSTANT _A
+0 CONSTANT _B
 0 CONSTANT EA
 0 CONSTANT EB
 
@@ -884,11 +884,11 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 ( if a and b differs, prints error string, halts )
 : EXPECT" ( a expected [ reads "errstr" from input ] -- )
-    TO EA TO A
+    TO EA TO _A
     TEMPSTR"
-    A EA <> IF ( f"ERROR ({errstr}), EXPECTED {ea} GOT {a}" )
+    _A EA <> IF ( f"ERROR ({errstr}), EXPECTED {ea} GOT {a}" )
         ." ERROR (" TELL
-        ." ): EXPECTED " A .
+        ." ): EXPECTED " _A .
         ." , GOT " EA .
         NL
         HANDLE_ERR
@@ -896,12 +896,12 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
 
 : 2EXPECT" ( a b ea eb [reads"] -- )
     ( if a b don't match expected, prints error message )
-        TO EB TO EA TO B TO A
+        TO EB TO EA TO _B TO _A
         TEMPSTR" ( happens when run? )
-        A EA <> B EB <> OR IF ( if not match )
+        _A EA <> _B EB <> OR IF ( if not match )
             ( errstr ) TELL
             ." : expected '" EA . EB 0 .R
-            ." ', got '" A . B 0 .R ." '\n"
+            ." ', got '" _A . _B 0 .R ." '\n"
             HANDLE_ERR
         ELSE ( errstr ) DROP THEN
         ;
