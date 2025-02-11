@@ -473,8 +473,7 @@ DECIMAL
     ( we want to print ds0 first, so -LOOP. Include SP@ )
     SP@ 1- DS0  ( DS0 downto and incl SP@ )
     2DUP >= IF 2DROP RETURN THEN
-    DO I> @ .  1 -LOOP
-    NL ;
+    DO I> @ .  1 -LOOP ;
 
 
 ( ========== Fancier quoting/inlining ========= )
@@ -665,7 +664,10 @@ DECIMAL
     - if interactive: after each newline, if not in compile mode, print OK NL PROMPT
 )
 
-: PROMPT  ( prints out "[n] > " )
+0 VARIABLE 'PROMPT
+: PROMPT 'PROMPT @ EXECUTE ;
+
+: PROMPT1  ( prints out "[n] > " )
     C' [ EMIT
     BASE @ DECIMAL  ( switch to decimal, save base )
     DEPTH 1- .  ( subtract 1 to account for saved BASE )
@@ -673,6 +675,8 @@ DECIMAL
     C' > EMIT SPACE
     BASE ! ( restore base )
     ;
+' PROMPT1 'PROMPT !
+
 
 : RESTART ( ??? )
     BASE @ 0= IF ( if starting first time )
