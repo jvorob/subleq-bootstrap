@@ -287,7 +287,7 @@ int step(struct vm_state *vm) {
         //SHOW_VAR_NEG(TAB,0x800);
         //SHOW_VAR_NEG(TB2,0x802);
         //SHOW_VAR(Z,0x0);
-        SHOW_VAR(T,0x3);
+        SHOW_VAR(T,0x1);
         SHOW_VAR_NEG(P2, 0x25);
         //SHOW_VAR_NEG(R,0x27);
         //SHOW_VAR_NEG(C,0x28);
