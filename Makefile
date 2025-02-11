@@ -103,6 +103,11 @@ sforth2: fth/sforth2.fth sforth1.bin
 	cat $< - | stdbuf -i0 -o0 -e0 ./sleqrun $(SLEQFLAGS) sforth1.bin
 .PHONY: sforth2
 
+sforth3: fth/sforth3.fth sforth1.bin
+	@#cat $< - | stdbuf -oL tail -n+2 | stdbuf -i0 -o0 -e0 ./sleqrun $(SLEQFLAGS) sforth1.bin
+	cat $< - | stdbuf -i0 -o0 -e0 ./sleqrun $(SLEQFLAGS) sforth1.bin
+.PHONY: sforth3
+
 #sforth.bin: asm/sforth.fth sforth_core.bin
 
 
