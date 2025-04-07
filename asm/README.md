@@ -54,7 +54,7 @@ Code looks like this:
        8 28 79    #76:  I C  (read -getc() into C)
       28 20 7C    #79:  C X  (flip; X holds +getc())
      109 20 70    #7C:  $9 X comment    ; if X  <0xA
-       4 20 40    #7F:  $1 X next_char ; if X == 0xA
+       4 20 40    #7F:  $1 X next_char  ; if X == 0xA
       20 20 73    #82:  X X comment+3   ; else (>0xA),
        0  0 88    #85:
        0  0 8B    #88:
