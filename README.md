@@ -1,15 +1,17 @@
-Writing an emulator and tooling for a [SUBLEQ](https://esolangs.org/wiki/Subleq) instruction set, computer.
+# Subleq Toolchain Bootstrapping
 
-Goal is to write a series of bootstrapping assemblers in subleq, up to a useful macro language
+This is a personal project of been working on to make a software toolchain from scratch, for a home-brewed CPU architecture. I start by writing raw machine code in hex, use that to write a series of increasingly-powerful assemblers, and finally implement a high-level language (FORTH) toolchain, complete with interactive REPL, debugger, stack introspection, and disassembler.
 
+## SUBLEQ CPU Emulator
 
-# Compilation / execution
+The system runs on an emulated [SUBLEQ](https://esolangs.org/wiki/Subleq) machine, which supports only a single instruction: subtract-and-branch-if-less-than-or-equal. It has a 128KB memory, organized as 64K 16-bit words. A small memory-mapped region in 0x08-0x20 provides single-character I/O and a simple ALU. The emulator can be halted by executing a 1-instruction infinite loop (i.e. an instruction that jumps to itself with matching source and target operands), in which case the emulator exits with return value equal to the src operand address.
 
-`./sleqrun` is the emulator that can run `.bin` binaries. These are simply loaded into the emulated memory at 0x0000, interpreted as a sequence of 16-bit little-endian words, and executed from there. The emulator has a 32-word region memory mapped to provide single-character I/O and a simple ALU. It halts upon encountering an instruction that jumps to itself with source and target operands matching, as that must always loop infinitely, and the emulator process exits with return value equal to the address of the src operand
+The emulator and initial assembler can be found in `src/`.  Running `make clean && make` should build the 2 initial C programs:
 
-`./hex1` is a basic "assembler" used to start the bootstrapping process. However, assembler is a bit generous, as all it does is convert ASCII hex-literals to binary, and ignores whitespace / single-line comments.
+`./sleqrun` is the emulator, and runs `.bin` binaries. These are simply loaded into the emulated memory at 0x0000, interpreted as a sequence of 16-bit little-endian words, and executed from there.
 
-Running `make clean && make` should build the c components.
+`./hex1` is a basic "assembler" used to start the bootstrapping process. Calling it an assembler is a bit generous though, as all it does is convert ASCII hex-literals to binary, and ignores whitespace / single-line comments.
+
 You can assemble and run a basic hello world program like so:
     $ ./hex1 <asm/hello.hex1 >hello.bin
         End of input: wrote 80 dwords (0x50)
@@ -22,9 +24,9 @@ You can assemble and run a basic hello world program like so:
 The program gets in/output on stdin/stdout, sleqrun emulator prints debugging info on stderr,
 For a full program trace, run with `./sleqrun --debug BINARY`
 
-# Assembler Bootstrapping
+## Assembler Bootstrapping
 
-While we began with a (hex)-assembler written in C, the goal is to eventuall have the subleq assemblers be self-hosting. The first step toward achieveing this is to replace our initial hex1 assembler (written in C), with a subleq program that does the same thing.
+While we began with a (hex)-assembler written in C, the goal is to eventually have the subleq assemblers be self-hosting. The first step toward achieveing this is to replace our initial hex1 assembler (written in C), with a subleq program that does the same thing.
 
 `./hex1 <asm/hex1.hex1 >hex1.bin`
 
@@ -40,14 +42,15 @@ Now we can assemble subleq binaries without using any C programs (other than the
         ======= Halted with code 0 after 103 steps
 
 
-# Assembler upgrades
+## Assembler upgrades
 
 Now the assembler is self-hosting, but the code is raw machine code, all magic numbers, and can't be
 reordered without changing the addresses on every line:
->   20 20 73
->   28 28 76
->    8 28 79
->   28 20 7C
+     20 20 73    # @ 70:  X X  (clear X)
+     28 28 76    # @ 73:  C C
+      8 28 79    # @ 76:  I C  (read -getc() into C)
+     28 20 7C    # @ 79:  C X  (flip; X holds +getc())
+    109 20 70    # @ 7C:  $9 X comment ; if X \<0xA
 
 I then write a series of upgraded assemblers to be able to
 code in a slightly-less-awful environment:
@@ -67,9 +70,9 @@ Each one is more complex, and so uses the tools introduced by the previous itera
       X X; C_ X;            # X (char) := +(next char)
       ...
 
-(see details of assembler versions in [asm/README.md](asm/README.md))
+(see more details on the assemblers in [asm/README.md](asm/README.md))
 
-# FORTH
+## FORTH
 
 
 Once I've made an assembler capable of string-labels, I can finally start working on making an ergonomic higher-level language ([FORTH](https://en.wikipedia.org/wiki/Forth_\(programming_language\))). Forth is designed for bootstrappability, and so after some finicky work implementing a minimal core for the language in subleq assembly (asm/sforth.asm2), the rest of the language bootstraps itself by interpreting source code written in itself (fth/sforth1.fth). Almost all the complex language features I implemented were able to be written without thinking about the assembly at all:
