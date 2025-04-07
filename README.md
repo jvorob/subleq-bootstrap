@@ -13,13 +13,16 @@ The emulator and initial assembler can be found in `src/`.  Running `make clean 
 `./hex1` is a basic "assembler" used to start the bootstrapping process. Calling it an assembler is a bit generous though, as all it does is convert ASCII hex-literals to binary, and ignores whitespace / single-line comments.
 
 You can assemble and run a basic hello world program like so:
-    $ ./hex1 <asm/hello.hex1 >hello.bin
-        End of input: wrote 80 dwords (0x50)
-    $ ./sleqrun hello.bin`
-        Loading binary from hello.bin... 80 words
-        ======= Running 16bit, 2MHz:
-        Hello World
-        ======= Halted with code 0 after 103 steps
+
+```
+$ ./hex1 <asm/hello.hex1 >hello.bin
+    End of input: wrote 80 dwords (0x50)
+$ ./sleqrun hello.bin`
+    Loading binary from hello.bin... 80 words
+    ======= Running 16bit, 2MHz:
+    Hello World
+    ======= Halted with code 0 after 103 steps
+```
 
 The program gets in/output on stdin/stdout, sleqrun emulator prints debugging info on stderr,
 For a full program trace, run with `./sleqrun --debug BINARY`
