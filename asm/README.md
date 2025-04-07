@@ -47,18 +47,18 @@ first cobbling together the new language features in the weaker language, before
 Incredibly limited, spacing between code chunks needs to be manually created by inserting zeroes as padding, and moving code around is almost impossible.
 Code looks like this:
 
-> # keep looping until newline, then go to next\_char
-> #parse\_comment:
->   20 20 73    #70:  X X  (clear X)
->   28 28 76    #73:  C C
->    8 28 79    #76:  I C  (read -getc() into C)
->   28 20 7C    #79:  C X  (flip; X holds +getc())
->  109 20 70    #7C:  $9 X comment    ; if X  \<0xA
->    4 20 40    #7F:  $1 X next\_char ; if X == 0xA
->   20 20 73    #82:  X X comment+3   ; else (\>0xA),
->    0  0 88    #85:
->    0  0 8B    #88:
->    0  0 8E    #8B:  padding bytes (can't move code blocks around)
+    # keep looping until newline, then go to next\_char
+    #parse\_comment:
+      20 20 73    #70:  X X  (clear X)
+      28 28 76    #73:  C C
+       8 28 79    #76:  I C  (read -getc() into C)
+      28 20 7C    #79:  C X  (flip; X holds +getc())
+     109 20 70    #7C:  $9 X comment    ; if X  \<0xA
+       4 20 40    #7F:  $1 X next\_char ; if X == 0xA
+      20 20 73    #82:  X X comment+3   ; else (\>0xA),
+       0  0 88    #85:
+       0  0 8B    #88:
+       0  0 8E    #8B:  padding bytes (can't move code blocks around)
 
 ### hex2:
 - backwards compatible with hex1
