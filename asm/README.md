@@ -47,8 +47,8 @@ first cobbling together the new language features in the weaker language, before
 Incredibly limited, spacing between code chunks needs to be manually created by inserting zeroes as padding, and moving code around is almost impossible.
 Code looks like this:
 
-    # keep looping until newline, then go to next\_char
-    #parse\_comment:
+    # keep looping until newline, then go to next_char
+    #parse_comment:
       20 20 73    #70:  X X  (clear X)
       28 28 76    #73:  C C
        8 28 79    #76:  I C  (read -getc() into C)
