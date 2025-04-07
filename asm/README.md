@@ -78,7 +78,7 @@ In subleq, the only way to do indirect memory accesses (i.e. reading a pointer) 
     # FETCH_SUBTRACT: X -= *(-P)
     ?+5 ?+4   ?  #   : Q   Q     # clear operand Q (2 insts ahead)
     [P] ?+1   ?  #   : P   Q     # subtract address at P from operand Q
-    _ [X]   ?  #   : Q:_ X     # subtract value at addr Q from X
+    _   [X]   ?  #   : Q:_ X     # subtract value at addr Q from X
 ```
 
 Being able to specify-relative offsets like this lets us write snippets like this that are position independent (and so can be copy/pasted), which is crucial for implementing the string tables I will need for the next step.
