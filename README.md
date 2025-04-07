@@ -31,26 +31,32 @@ While we began with a (hex)-assembler written in C, the goal is to eventually ha
 `./hex1 <asm/hex1.hex1 >hex1.bin`
 
 Now we can assemble subleq binaries without using any C programs (other than the emulator itself). This also makes the hex1 assembler self-hosting.
-    $ ./sleqrun hex1.bin  <asm/hello.hex1 >hello.bin
-        Loading binary from hex1.bin... 656 words
-        ======= Running 16bit, 2MHz:
-        ======= Halted with code 0 after 9916 steps
-    $ ./sleqrun hello.bin
-        Loading binary from hello.bin... 80 words
-        ======= Running 16bit, 2MHz:
-        Hello World
-        ======= Halted with code 0 after 103 steps
+
+```
+$ ./sleqrun hex1.bin  <asm/hello.hex1 >hello.bin
+    Loading binary from hex1.bin... 656 words
+    ======= Running 16bit, 2MHz:
+    ======= Halted with code 0 after 9916 steps
+$ ./sleqrun hello.bin
+    Loading binary from hello.bin... 80 words
+    ======= Running 16bit, 2MHz:
+    Hello World
+    ======= Halted with code 0 after 103 steps
+```
 
 
 ## Assembler upgrades
 
 Now the assembler is self-hosting, but the code is raw machine code, all magic numbers, and can't be
 reordered without changing the addresses on every line:
-     20 20 73    # @ 70:  X X  (clear X)
-     28 28 76    # @ 73:  C C
-      8 28 79    # @ 76:  I C  (read -getc() into C)
-     28 20 7C    # @ 79:  C X  (flip; X holds +getc())
-    109 20 70    # @ 7C:  $9 X comment ; if X \<0xA
+
+```
+ 20 20 73    # @ 70:  X X  (clear X)
+ 28 28 76    # @ 73:  C C
+  8 28 79    # @ 76:  I C  (read -getc() into C)
+ 28 20 7C    # @ 79:  C X  (flip; X holds +getc())
+109 20 70    # @ 7C:  $9 X comment ; if X \<0xA
+```
 
 I then write a series of upgraded assemblers to be able to
 code in a slightly-less-awful environment:
@@ -62,13 +68,15 @@ code in a slightly-less-awful environment:
 
 Each one is more complex, and so uses the tools introduced by the previous iterations to implement itelf more cleanly, until finally we have something resembling normal assembly:
 
-    read_label:
-      Y Y;                  # Y (len)  := 0
-      V V; tbl_end V; 4 V;  # V (-ptr) := -(tbl_end + 4)
-                            # leaves 1 word for len field
-    read_label_loop:        # (Tests if C is a valid label char)
-      X X; C_ X;            # X (char) := +(next char)
-      ...
+```
+read_label:
+  Y Y;                  # Y (len)  := 0
+  V V; tbl_end V; 4 V;  # V (-ptr) := -(tbl_end + 4)
+                        # leaves 1 word for len field
+read_label_loop:        # (Tests if C is a valid label char)
+  X X; C_ X;            # X (char) := +(next char)
+  ...
+```
 
 (see more details on the assemblers in [asm/README.md](asm/README.md))
 
