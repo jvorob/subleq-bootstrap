@@ -81,7 +81,7 @@ In subleq, the only way to do indirect memory accesses (i.e. reading a pointer) 
     _   [X]   ?  #   : Q:_ X     # subtract value at addr Q from X
 ```
 
-Being able to specify-relative offsets like this lets us write snippets like this that are position independent (and so can be copy/pasted), which is crucial for implementing the string tables I will need for the next step.
+Being able to specify relative offsets lets us write these snippets to be position independent (and so copy/pastable), which is crucial for implementing the string tables I will need for the next step.
 
 ### asm1:
 - adds labels, (single-pass, so backwards labels only)

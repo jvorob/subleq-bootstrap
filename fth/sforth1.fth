@@ -1411,6 +1411,18 @@ DECIMAL
 
 ( ========================================= )
 
+: HALT 0 HALTN ;
+: EXPLAIN_HALT ." Use `HALT to exit the program or `n HALTN` to exit with an error code\n" ;
+( let's redefine exit to print a helpful message, like in python )
+( hmm, this does alias the inner interpreter definition of the word... )
+( maybe not such a good idea? )
+: EXIT
+    STATE @ IF 'EXIT #, ( in compile mode, compile an exit )
+    ELSE EXPLAIN_HALT   ( in immediate mode, inform the user )
+    THEN ; IMMEDIATE
+
+( ========================================= )
+
 : NUMWORDS ( -- n )
     0
     LATEST @ ( cnt wha )

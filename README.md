@@ -1,6 +1,6 @@
 # Subleq Toolchain Bootstrapping
 
-This is a personal project I've been working on to make a software toolchain from scratch, for a home-brewed CPU architecture. I start by writing raw machine code in hex, use that to write a series of increasingly-powerful assemblers, and finally implement a high-level language (FORTH), complete with interactive REPL, debugger, stack introspection, and disassembler.
+This is a personal project I've been working on to make a software toolchain from scratch, for a home-brewed CPU architecture. I start by writing raw machine code in hex, use that to write a series of increasingly-powerful assemblers, and finally implement a high-level language ([FORTH](https://en.wikipedia.org/wiki/Forth_(programming_language))), complete with interactive REPL, debugger, stack introspection, and disassembler.
 
 - `make` builds the subleq emulator (`./sleqrun`) and initial hex-assembler (`./hex1`)
 - `make tower` bootstraps assemblers until we reach the most advanced assembler (`asm2.bin`)
@@ -14,9 +14,9 @@ $ make sforth MHZ=20
 STARTING
 [0 > 1 2 + .
 3  OK
-[0 > : TO_FAHR ( c -- f ) 9 * 5 / 32 + ;
+[0 > : C_TO_F ( c -- f ) 9 * 5 / 32 + ;
  OK
-[0 > 100 to_fahr .
+[0 > 100 c_to_f .
 212  OK
 [0 > : STAR [CHAR] * EMIT ;
  OK
@@ -54,7 +54,7 @@ You can assemble and run a basic hello world program like so:
 ```
 $ ./hex1 <asm/hello.hex1 >hello.bin
     End of input: wrote 80 dwords (0x50)
-$ ./sleqrun hello.bin`
+$ ./sleqrun hello.bin
     Loading binary from hello.bin... 80 words
     ======= Running 16bit, 2MHz:
     Hello World
@@ -68,7 +68,7 @@ Note that to get a better feel for the speed of the code the emulator runs at 2M
 
 ## Assembler Bootstrapping
 
-While we began with a (hex)-assembler written in C, the goal is to eventually have the subleq assemblers be self-hosting. The first step toward achieveing this is to replace our initial hex1 assembler (written in C), with a subleq program that does the same thing.
+While we began with a (hex)-assembler written in C, the goal is to eventually have the subleq assemblers be self-hosting. The first step toward achieving this is to replace our initial hex1 assembler (written in C), with a subleq program that does the same thing.
 
 `./hex1 <asm/hex1.hex1 >hex1.bin`
 
@@ -103,12 +103,39 @@ reordered without changing the addresses on every line:
 I then write a series of upgraded assemblers to be able to
 code in a slightly-less-awful environment:
 
-- hex2 allows me to automatically pad the binary with nulls to move code to specific locations, so I no longer need to painstakingly put in and count nulls myself when making any change.
-- hex3 allows me to specify simple PC-relative arithmetic in the assembly, making more code position independent (and allowing for somewhat ergonomic copy-pasting of pointer-related code).
-- asm1 finally implements the ability to specify arbitrary string labels, making the code finally almost readable.
-- asm2 adds support for inserting string literals into the binary, which are necessary for the next step.
+- `hex2` allows me to automatically pad the binary with nulls to move code to specific locations, so I no longer need to painstakingly put in and count nulls myself when making any change.
+- `hex3` allows me to specify simple PC-relative arithmetic in the assembly, making more code position independent (and allowing for somewhat ergonomic copy-pasting of pointer-related code).
+- `asm1` finally implements the ability to specify arbitrary string labels, making the code finally almost readable.
+- `asm2` adds support for inserting string literals into the binary, which are necessary for the next step.
 
-Each one is more complex, and so uses the tools introduced by the previous iterations to implement itelf more cleanly, until finally we have something resembling normal assembly:
+Each one is more complex, and each one is needed to build the next iteration in the series, so running `make tower` will build the following sequence of assemblers:
+
+```
+#### (Output trimmed down for readability)
+$ ./sleqrun hex1.bin <asm/hex2.hex1 >hex2_bs.bin
+    Loading hex1.bin... 656 words
+    Halted after 120689 steps
+$ ./sleqrun hex2_bs.bin <asm/hex2.hex2 >hex2.bin
+    Loading hex2_bs.bin... 764 words
+    Halted after 90739 steps
+$ ./sleqrun hex2.bin <asm/hex3.hex2 >hex3_bs.bin
+    Loading hex2.bin... 686 words
+    Halted after 71583 steps
+$ ./sleqrun hex3_bs.bin <asm/hex3.hex3 >hex3.bin
+    Loading hex3_bs.bin... 888 words
+    Halted after 75198 steps
+$ ./sleqrun hex3.bin <asm/asm1.hex3 >asm1_bs.bin
+    Loading hex3.bin... 888 words
+    Halted after 209463 steps
+$ ./sleqrun asm1_bs.bin <asm/asm1.asm1 >asm1.bin
+    Loading asm1_bs.bin... 8756 words
+    Halted after 1002418 steps
+$ ./sleqrun asm1.bin <asm/asm2.asm1 >asm2.bin
+    Loading asm1.bin... 8723 words
+    Halted after 1137182 steps
+```
+
+Until at last we can write something resembling normal assembly:
 
 ```
 read_label:
@@ -121,6 +148,59 @@ read_label_loop:        # (Tests if C is a valid label char)
   Z Z retsub            # else (x>0), goto return
   ...
 ```
+
+
+<!--
+
+
+```
+jan@acetate:~/code/langs/subleq$ ./sleqrun asm2.bin <asm/hello.asm2 >hello.bin
+Loading binary from asm2.bin... 8723 words
+======= Running 16bit, 2MHz:
+======= Halted with code 0 after 33015 steps
+jan@acetate:~/code/langs/subleq$ ./sleqrun hello.bin
+Loading binary from hello.bin... 542 words
+======= Running 16bit, 2MHz:
+Hello World
+======= Halted with code 0 after 105 steps
+```
+
+
+```
+$ make tower     # Original Output
+./hex1 <asm/hex1.hex1 >hex1.bin
+End of input: wrote 656 dwords (0x290)
+./sleqrun --mhz 2  hex1.bin <asm/hex2.hex1 >hex2_bs.bin
+Loading binary from hex1.bin... 656 words
+======= Running 16bit, 2MHz:
+======= Halted with code 0 after 120689 steps
+./sleqrun --mhz 2  hex2_bs.bin <asm/hex2.hex2 >hex2.bin
+Loading binary from hex2_bs.bin... 764 words
+======= Running 16bit, 2MHz:
+======= Halted with code 0 after 90739 steps
+./sleqrun --mhz 2  hex2.bin <asm/hex3.hex2 >hex3_bs.bin
+Loading binary from hex2.bin... 686 words
+======= Running 16bit, 2MHz:
+======= Halted with code 0 after 71583 steps
+./sleqrun --mhz 2  hex3_bs.bin <asm/hex3.hex3 >hex3.bin
+Loading binary from hex3_bs.bin... 888 words
+======= Running 16bit, 2MHz:
+======= Halted with code 0 after 75198 steps
+./sleqrun --mhz 2  hex3.bin <asm/asm1.hex3 >asm1_bs.bin
+Loading binary from hex3.bin... 888 words
+======= Running 16bit, 2MHz:
+======= Halted with code 0 after 209463 steps
+./sleqrun --mhz 2  asm1_bs.bin <asm/asm1.asm1 >asm1.bin
+Loading binary from asm1_bs.bin... 8756 words
+======= Running 16bit, 2MHz:
+======= Halted with code 0 after 1002418 steps
+./sleqrun --mhz 2  asm1.bin <asm/asm2.asm1 >asm2.bin
+Loading binary from asm1.bin... 8723 words
+======= Running 16bit, 2MHz:
+======= Halted with code 0 after 1137182 steps
+```
+-->
+
 
 (see more details on the assemblers in [asm/README.md](asm/README.md))
 
