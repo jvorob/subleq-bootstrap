@@ -156,10 +156,10 @@ OK
 [0 > ' ISUNSAFEPTR HEX . ( print pointer in hex )
 3DC8  OK
 [0 > HEX 3DC8 20 HEXDUMP
-              x0   x1   x2   x3   x4   x5   x6   x7        x8   x9   xA   xB   xC   xD   xE   xF  
+              x0   x1   x2   x3   x4   x5   x6   x7        x8   x9   xA   xB   xC   xD   xE   xF
        3DC0 : 4E   53   41   46   45   50   54   52    === 820  DFD  8    DFD  21   311F 880  3DBA
-       3DD0 : 0    D    42   45   4C   4F   57   41    === 4C   4C   57   4F   52   44   53   820 
-       3DE0 : DFD  FF01 DFD  200  311F 880  3DCF 0     === 8    2D   31   36   41   4C   49   47  
+       3DD0 : 0    D    42   45   4C   4F   57   41    === 4C   4C   57   4F   52   44   53   820
+       3DE0 : DFD  FF01 DFD  200  311F 880  3DCF 0     === 8    2D   31   36   41   4C   49   47
 [0 > ' ISUNSAFEPTR SEE
     === 3DC8(ISUNSAFEPTR)
     3DC8 : 820 (_:_)
@@ -190,15 +190,15 @@ OK
 4 : 9 4 1 0  OK
 [4 > 2drop 2drop
  OK
-[0 > : SUMSQRS ( n -- sum ) DUP 0= IF ( 0 ) RETURN THEN 
-    DUP SQR SWAP 1- ( sum n ) RECURSE ;  
+[0 > : SUMSQRS ( n -- sum ) DUP 0= IF ( 0 ) RETURN THEN
+    DUP SQR SWAP 1- ( sum n ) RECURSE ;
  OK
 [0 > 3 sumqrs .s    ( oops, typo )
 SUMQRS?
 RESTART (v0.2)
 [0 > 3 sumsqrs .s   ( oops, looks like we didn't sum the results )
 4 : 9 4 1 0  OK
-[4 > : SUMSQRS ( n -- sum ) DUP 0= IF ( 0 ) RETURN THEN 
+[4 > : SUMSQRS ( n -- sum ) DUP 0= IF ( 0 ) RETURN THEN
     DUP SQR SWAP 1- ( sum n ) RECURSE ( sum recsum ) + ;
  OK
 [4 > 2DROP 2DROP    ( we clean up our stack )
@@ -246,7 +246,7 @@ CASE
     ENDCASE ;
 
 [0 > 3 collatz
-    3 10 5 16 8 4 2 1 === RSP: 1014 
+    3 10 5 16 8 4 2 1 === RSP: 1014
     3F6) 475E: (COLLATZ)+14  = [1560(BRANCH)]
     3F7) 475E: (COLLATZ)+14  = [1560(BRANCH)]
     3F8) 475E: (COLLATZ)+14  = [1560(BRANCH)]
@@ -259,8 +259,8 @@ CASE
     3FF) 1E44: (INTERPRET)+249 = [880 (_;_)]
     400) 1E9B: (RESTART)+25  = [E3A (LITSTR)]
     OK
-[0 > 3 tail_coll 
-    3 10 5 16 8 4 2 1 === RSP: 1022 
+[0 > 3 tail_coll
+    3 10 5 16 8 4 2 1 === RSP: 1022
     3FE) 3752: (?EXECUTE)+12  = [880 (_;_)]
     3FF) 39CF: (NEW_INTERPRET)+10  = [3982(?STACK)]
     400) 38F9: (RESTART)+4A  = [E3A (LITSTR)]
@@ -271,6 +271,24 @@ CASE
 -->
 
 
+<!-- Shorter demo of return stack introspection
+[0 > : STAR [CHAR] * EMIT ;
+ OK
+[0 > : STARS ( n ) DUP 0= IF
+        DROP .RS  ( base case: show ret stack )
+        ELSE STAR 1- RECURSE
+    THEN ;
+ OK
+[0 > 4 stars
+****=== RSP: 1017
+3FA) 46ED: (STARS)+7   = [1560(BRANCH)]
+3FB) 46ED: (STARS)+7   = [1560(BRANCH)]
+3FC) 46ED: (STARS)+7   = [1560(BRANCH)]
+3FD) 46ED: (STARS)+7   = [1560(BRANCH)]
+3FE) 3760: (?EXECUTE)+12  = [880 (_;_)]
+3FF) 39DD: (NEW_INTERPRET)+10  = [3990(?STACK)]
+400) 3907: (RESTART)+4A  = [E3A (LITSTR)]
+-->
 
 <!-- Interactive session? Might be too long to work in easily
 ```
