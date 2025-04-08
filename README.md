@@ -103,7 +103,7 @@ reordered without changing the addresses on every line:
 I then write a series of upgraded assemblers to be able to
 code in a slightly-less-awful environment:
 
-- hex2 allows me to automatically pad the binary with nulls to move code to specific locations, so I no longer need to painstakingly put in an count nulls myself when making any change.
+- hex2 allows me to automatically pad the binary with nulls to move code to specific locations, so I no longer need to painstakingly put in and count nulls myself when making any change.
 - hex3 allows me to specify simple PC-relative arithmetic in the assembly, making more code position independent (and allowing for somewhat ergonomic copy-pasting of pointer-related code).
 - asm1 finally implements the ability to specify arbitrary string labels, making the code finally almost readable.
 - asm2 adds support for inserting string literals into the binary, which are necessary for the next step.
