@@ -112,27 +112,27 @@ Each one is more complex, and each one is needed to build the next iteration in 
 
 ```
 #### (Output trimmed down for readability)
-$ ./sleqrun hex1.bin <asm/hex2.hex1 >hex2_bs.bin
-    Loading hex1.bin... 656 words
-    Halted after 120689 steps
+$ ./sleqrun hex1.bin    <asm/hex2.hex1 >hex2_bs.bin
+    Loading hex1.bin...    656 words
+    ========= Halted after 120689 steps
 $ ./sleqrun hex2_bs.bin <asm/hex2.hex2 >hex2.bin
     Loading hex2_bs.bin... 764 words
-    Halted after 90739 steps
-$ ./sleqrun hex2.bin <asm/hex3.hex2 >hex3_bs.bin
-    Loading hex2.bin... 686 words
-    Halted after 71583 steps
+    ========= Halted after 90739 steps
+$ ./sleqrun hex2.bin    <asm/hex3.hex2 >hex3_bs.bin
+    Loading hex2.bin...    686 words
+    ========= Halted after 71583 steps
 $ ./sleqrun hex3_bs.bin <asm/hex3.hex3 >hex3.bin
     Loading hex3_bs.bin... 888 words
-    Halted after 75198 steps
-$ ./sleqrun hex3.bin <asm/asm1.hex3 >asm1_bs.bin
-    Loading hex3.bin... 888 words
-    Halted after 209463 steps
+    ========= Halted after 75198 steps
+$ ./sleqrun hex3.bin    <asm/asm1.hex3 >asm1_bs.bin
+    Loading hex3.bin...    888 words
+    ========= Halted after 209463 steps
 $ ./sleqrun asm1_bs.bin <asm/asm1.asm1 >asm1.bin
     Loading asm1_bs.bin... 8756 words
-    Halted after 1002418 steps
-$ ./sleqrun asm1.bin <asm/asm2.asm1 >asm2.bin
-    Loading asm1.bin... 8723 words
-    Halted after 1137182 steps
+    ========= Halted after 1002418 steps
+$ ./sleqrun asm1.bin    <asm/asm2.asm1 >asm2.bin
+    Loading asm1.bin...    8723 words
+    ========= Halted after 1137182 steps
 ```
 
 Until at last we can write something resembling normal assembly:
@@ -149,6 +149,19 @@ read_label_loop:        # (Tests if C is a valid label char)
   ...
 ```
 
+And compile it like so
+
+```
+$ ./sleqrun asm2.bin  <asm/hello.asm2 >hello.bin
+    - snip -
+$ ./sleqrun hello.bin
+    Loading binary from hello.bin... 542 words
+    ======= Running 16bit, 2MHz:
+    Hello World
+    ======= Halted with code 0 after 105 steps
+```
+
+(see more details on the assemblers in [asm/README.md](asm/README.md))
 
 <!--
 
@@ -202,7 +215,6 @@ Loading binary from asm1.bin... 8723 words
 -->
 
 
-(see more details on the assemblers in [asm/README.md](asm/README.md))
 
 ## FORTH
 
