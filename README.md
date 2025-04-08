@@ -1,6 +1,6 @@
 # Subleq Toolchain Bootstrapping
 
-This is a personal project I've been working on to make a software toolchain from scratch, for a home-brewed CPU architecture. I start by writing raw machine code in hex, use that to write a series of increasingly-powerful assemblers, and finally implement a high-level language (FORTH) toolchain, complete with interactive REPL, debugger, stack introspection, and disassembler.
+This is a personal project I've been working on to make a software toolchain from scratch, for a home-brewed CPU architecture. I start by writing raw machine code in hex, use that to write a series of increasingly-powerful assemblers, and finally implement a high-level language (FORTH), complete with interactive REPL, debugger, stack introspection, and disassembler.
 
 - `make` builds the subleq emulator (`./sleqrun`) and initial hex-assembler (`./hex1`)
 - `make tower` bootstraps assemblers until we reach the most advanced assembler (`asm2.bin`)
