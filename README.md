@@ -60,7 +60,7 @@ $ ./sleqrun hello.bin`
 The program gets in/output on stdin/stdout, sleqrun emulator prints debugging info on stderr,
 For a full program trace, run with `./sleqrun --debug BINARY`
 
-Note that to get a better feel for the speed of the code the emulator runs at 2MHZ by default. However, this is a bit misleading, given that SUBLEQ is not intended to be a sensible or performant architecture, with code taking something like 2x-10x more operations compared to a simple 16-bit CPU. To run faster, you can pass `--mhz N` to speed it up, something like 10 or 20 MHZ is able to compile the entire stack within a few seconds
+Note that to get a better feel for the speed of the code the emulator runs at 2MHZ by default. However, since SUBLEQ is a bit of a tarpit, the actual performance is probably comparable to something like an 8-bit CPU running at 500KHz or so, (I'm estimating something like 2x-10x more instructions vs a sensible ISA). To run faster, you can pass `--mhz N` to speed it up, something like 20 MHZ is able to rebuild the entire forth stack within a few seconds.
 
 ## Assembler Bootstrapping
 
