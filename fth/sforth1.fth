@@ -368,6 +368,7 @@ DECIMAL
 : STRBOUNDS ( strp -- &str_end &str[0] ) DUP STREND SWAP 1+ ;
 
 : ABS DUP 0< IF NEG THEN ;
+: SIGN ( n -- +1/-1/0 ) DUP 0> SWAP 0< ( pos neg ) - ;
 
 
 ( =============== DIVISION =============== )
@@ -885,6 +886,8 @@ FORGET' UPGRADE  ( we don't actually want to keep upgrade )
     STATE @ IF #, ( addr of variable ) [COMPILE] !
             ELSE ! THEN
     ; IMMEDIATE
+
+: VALUE CONSTANT ; ( they work the same under the hood, but aliasing makes intent clearer)
 
 ( if a and b differs, prints error string, halts )
 : EXPECT" ( a expected [ reads "errstr" from input ] -- )
@@ -1417,13 +1420,16 @@ DECIMAL
     WEND ( cnt wha )
     DROP ;
 
+: _SHOWDP ( -- )
+    ." DP: 0x"
+        BASE @  ( save base )
+            HEX DP @ .  ( print dp in hex )
+            ."  (" DP @ 1000 U/ 0 U.R ." K words used)"
+        BASE !  ;
 : GREET
     ." == Core Forth Bootstrapping Complete ==" NL
-    SPACE NUMWORDS .
-    ." words defined" NL
-    ."  DP: 0x"
-        BASE @ HEX DP @ . BASE ! ( save base, print DP in hex )
-        NL
+    SPACE NUMWORDS .  ." words defined" NL
+    SPACE _SHOWDP NL
     ."  Latest word: "
         LATEST @ >WNA TELL NL
     ;
