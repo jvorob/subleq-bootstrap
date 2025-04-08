@@ -37,7 +37,7 @@ Try some commands:
 
 ## SUBLEQ CPU Emulator
 
-The system runs on an emulated [SUBLEQ](https://esolangs.org/wiki/Subleq) machine, which supports only a single instruction: subtract-and-branch-if-less-than-or-equal. It has a 128KB memory, organized as 64K 16-bit words. A small memory-mapped region in 0x08-0x20 provides single-character I/O and a simple ALU. The emulator can be halted by executing a 1-instruction infinite loop (i.e. an instruction that jumps to itself with matching source and target operands), in which case the emulator exits with return value equal to the src operand address.
+The system runs on an emulated [SUBLEQ](https://esolangs.org/wiki/Subleq) machine, which supports only a single instruction: subtract-and-branch-if-less-than-or-equal-to-zero. It has a 128KB memory, organized as 64K 16-bit words. A small memory-mapped region in 0x08-0x20 provides single-character I/O and a simple ALU. The emulator can be halted by executing a 1-instruction infinite loop (i.e. an instruction that jumps to itself with matching source and target operands), in which case the emulator exits with return value equal to the src operand address.
 
 The emulator and initial assembler can be found in `src/`.  Running `make clean && make` should build the 2 initial C programs:
 
