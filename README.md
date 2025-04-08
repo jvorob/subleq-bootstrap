@@ -2,6 +2,39 @@
 
 This is a personal project of been working on to make a software toolchain from scratch, for a home-brewed CPU architecture. I start by writing raw machine code in hex, use that to write a series of increasingly-powerful assemblers, and finally implement a high-level language (FORTH) toolchain, complete with interactive REPL, debugger, stack introspection, and disassembler.
 
+- `make` builds the subleq emulator (`./sleqrun`) and initial hex-assembler (`./hex1`)
+- `make tower` bootstraps assemblers until we reach the most advanced assembler (`asm2.bin`)
+- `make sforth` uses asm2 to assemble an initial forth kernel (`asm/sforth.asm2`). The rest of the language is then compiled into a binary by interpreting forth source code from `fth/sforth1.fth`, before dropping the user into a REPL.
+
+Try some commands:
+```
+[0 > 1 2 + .
+3  OK
+[0 > : TO_FAHR ( c -- f ) 9 * 5 / 32 + ;
+ OK
+[0 > 100 TO_FAHR .
+212  OK
+[0 > : STAR [CHAR] * EMIT ;
+ OK
+[0 > : STARS ( n -- ) 0 DO STAR LOOP ;
+ OK
+[0 > 7 stars
+******* OK
+[0 > ' stars see
+=== 46D0(STARS)
+46D0 : 820 (_:_)
+46D1 : DFD (LIT)
+46D2 : 0   ( 0 )
+46D3 : 15A4(DO)
+46D4 : 46C3(STAR)
+46D5 : DFD (LIT)
+46D6 : 1   ( 1 )
+46D7 : 1608(+LOOP)
+46D8 : FFFC(<-46D4)
+46D9 : 880 (_;_)
+ OK
+```
+
 ## SUBLEQ CPU Emulator
 
 The system runs on an emulated [SUBLEQ](https://esolangs.org/wiki/Subleq) machine, which supports only a single instruction: subtract-and-branch-if-less-than-or-equal. It has a 128KB memory, organized as 64K 16-bit words. A small memory-mapped region in 0x08-0x20 provides single-character I/O and a simple ALU. The emulator can be halted by executing a 1-instruction infinite loop (i.e. an instruction that jumps to itself with matching source and target operands), in which case the emulator exits with return value equal to the src operand address.
@@ -74,10 +107,12 @@ Each one is more complex, and so uses the tools introduced by the previous itera
 ```
 read_label:
   Y Y;                  # Y (len)  := 0
-  V V; tbl_end V; 4 V;  # V (-ptr) := -(tbl_end + 4)
+  V V; tbl_end V; i4 V; # V (-ptr) := -(tbl_end + 4)
                         # leaves 1 word for len field
 read_label_loop:        # (Tests if C is a valid label char)
   X X; C_ X;            # X (char) := +(next char)
+  i8 X ?+3              # X-=8 ; if X<=0, skip next inst
+  Z Z retsub            # else (x>0), goto return
   ...
 ```
 
