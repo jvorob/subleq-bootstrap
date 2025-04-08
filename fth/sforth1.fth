@@ -1412,7 +1412,7 @@ DECIMAL
 ( ========================================= )
 
 : HALT 0 HALTN ;
-: EXPLAIN_HALT ." Use `HALT to exit the program or `n HALTN` to exit with an error code\n" ;
+: EXPLAIN_HALT ." Use `HALT` to exit the program or `n HALTN` to exit with an error code\n" ;
 ( let's redefine exit to print a helpful message, like in python )
 ( hmm, this does alias the inner interpreter definition of the word... )
 ( maybe not such a good idea? )
