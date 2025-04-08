@@ -8,6 +8,10 @@ This is a personal project of been working on to make a software toolchain from 
 
 Try some commands:
 ```
+$ make sforth MHZ=20
+.... lots of build output ....
+
+STARTING
 [0 > 1 2 + .
 3  OK
 [0 > : TO_FAHR ( c -- f ) 9 * 5 / 32 + ;
@@ -122,8 +126,9 @@ read_label_loop:        # (Tests if C is a valid label char)
 
 ## FORTH
 
+Even with an assembler though, SUBLEQ assembly is still hellish. We can only ever subtract values, meaning moves / adds are a pain, and bitwise arithmetic requires messing with a memory mapped ALU. Conditionals can only be expressed in the form of "is a variable <=0", and any kind of pointer access requires self-modifying code.
 
-Once I've made an assembler capable of string-labels, I can finally start working on making an ergonomic higher-level language ([FORTH](https://en.wikipedia.org/wiki/Forth_\(programming_language\))). Forth is designed for bootstrappability, and so after some finicky work implementing a minimal core for the language in subleq assembly (asm/sforth.asm2), the rest of the language bootstraps itself by interpreting source code written in itself (fth/sforth1.fth). Almost all the complex language features I implemented were able to be written without thinking about the assembly at all:
+At this point, I can finally start working on making an ergonomic higher-level language ([FORTH](https://en.wikipedia.org/wiki/Forth_\(programming_language\))) which can make this environment pleasant to program in. Forth is designed for bootstrappability, and so after some finicky work implementing a minimal core for the language in subleq assembly (asm/sforth.asm2), the rest of the language bootstraps itself by interpreting source code written in itself (fth/sforth1.fth). Almost all the complex language features I implemented were able to be written without thinking about the assembly at all:
 
 
     : SHOWOFFSET ( addr - ; shows offsets like "4   (->3BFe)" )
@@ -131,7 +136,7 @@ Once I've made an assembler capable of string-labels, I can finally start workin
         DUP @ 0> IF ." (->" ELSE ." (<-" THEN
         DUP @ + ( jump_tgt ) 4 U.R ." )" ;
 
-    : DIS1 ( addr -- )
+    : DIS1 ( addr -- ; prints one line of a disassembly )
         DUP SHOWADDR
         DUP ISUNSAFEPTR IF DROP ." unsafe\n" RETURN THEN
         DUP DS_OFFSET? IF
