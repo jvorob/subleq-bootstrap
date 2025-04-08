@@ -4,7 +4,7 @@ This is a personal project of been working on to make a software toolchain from 
 
 - `make` builds the subleq emulator (`./sleqrun`) and initial hex-assembler (`./hex1`)
 - `make tower` bootstraps assemblers until we reach the most advanced assembler (`asm2.bin`)
-- `make sforth` uses asm2 to assemble an initial forth kernel (`asm/sforth.asm2`). The rest of the language is then compiled into a binary by interpreting forth source code from `fth/sforth1.fth`, before dropping the user into a REPL.
+- `make sforth` uses asm2 to assemble an initial forth kernel (`asm/sforth.asm2`). The rest of the language is then compiled into a binary by interpreting forth source code from `fth/sforth1.fth`, before dropping the user into a REPL. If it's too slow, try `make sforth MHZ=20`
 
 Try some commands:
 ```
@@ -12,7 +12,7 @@ Try some commands:
 3  OK
 [0 > : TO_FAHR ( c -- f ) 9 * 5 / 32 + ;
  OK
-[0 > 100 TO_FAHR .
+[0 > 100 to_fahr .
 212  OK
 [0 > : STAR [CHAR] * EMIT ;
  OK
@@ -59,6 +59,8 @@ $ ./sleqrun hello.bin`
 
 The program gets in/output on stdin/stdout, sleqrun emulator prints debugging info on stderr,
 For a full program trace, run with `./sleqrun --debug BINARY`
+
+Note that to get a better feel for the speed of the code the emulator runs at 2MHZ by default. However, this is a bit misleading, given that SUBLEQ is not intended to be a sensible or performant architecture, with code taking something like 2x-10x more operations compared to a simple 16-bit CPU. To run faster, you can pass `--mhz N` to speed it up, something like 10 or 20 MHZ is able to compile the entire stack within a few seconds
 
 ## Assembler Bootstrapping
 
