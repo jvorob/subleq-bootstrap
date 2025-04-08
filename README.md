@@ -153,7 +153,7 @@ And compile it like so
 
 ```
 $ ./sleqrun asm2.bin  <asm/hello.asm2 >hello.bin
-    - snip -
+    ...
 $ ./sleqrun hello.bin
     Loading binary from hello.bin... 542 words
     ======= Running 16bit, 2MHz:
@@ -218,7 +218,7 @@ Loading binary from asm1.bin... 8723 words
 
 ## FORTH
 
-Even with an assembler though, SUBLEQ assembly is still hellish. We can only ever subtract values, meaning moves / adds are a pain, and bitwise arithmetic requires messing with a memory mapped ALU. Conditionals can only be expressed in the form of "is a variable <=0", and any kind of pointer access requires self-modifying code.
+Even with an assembler though, SUBLEQ assembly is still hellish. We can only ever subtract values, so moves and adds are a pain; bitwise arithmetic requires messing with a memory mapped ALU; conditionals can only be expressed in the form of "is a variable <=0"; and any kind of pointer access requires self-modifying code.
 
 At this point, I can finally start working on making an ergonomic higher-level language ([FORTH](https://en.wikipedia.org/wiki/Forth_\(programming_language\))) which can make this environment pleasant to program in. Forth is designed for bootstrappability, and so after some finicky work implementing a minimal core for the language in subleq assembly (asm/sforth.asm2), the rest of the language bootstraps itself by interpreting source code written in itself (fth/sforth1.fth). Almost all the complex language features I implemented were able to be written without thinking about the assembly at all:
 
