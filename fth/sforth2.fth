@@ -239,7 +239,8 @@ CHAR 9 CONSTANT NOCOL
     CSP:? 
     STATE 0! 
 
-    [COMPILE] EXIT FINISHWIP
+    ( can't just [postpone] exit, havent thought through why )
+    'EXIT , FINISHWIP
 ; IMMEDIATE
  
 

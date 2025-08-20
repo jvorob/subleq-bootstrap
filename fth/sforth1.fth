@@ -1417,7 +1417,7 @@ DECIMAL
 ( hmm, this does alias the inner interpreter definition of the word... )
 ( maybe not such a good idea? )
 : EXIT
-    STATE @ IF 'EXIT #, ( in compile mode, compile an exit )
+    STATE @ IF 'EXIT , ( in compile mode, compile an exit )
     ELSE EXPLAIN_HALT   ( in immediate mode, inform the user )
     THEN ; IMMEDIATE
 
